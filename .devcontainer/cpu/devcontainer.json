@@ -1,0 +1,71 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+	// Container definition for TensorFlow development environment
+	// Based on Google's official TensorFlow 2.16 image
+	// See here: https://hub.docker.com/r/gperdrizet/deeplearning-cpu
+    // And here: https://hub.docker.com/r/tensorflow/tensorflow/tags?name=2.16.1
+	"name": "DeepLearning CPU",
+	"image": "gperdrizet/deeplearning-cpu",
+    "runArgs": [
+		"--publish", "6006:6006",   // Map TensorBoard port for easy access
+		"--network=bridge"          // Explicitly use bridge network for internet access
+	],
+	"forwardPorts": [6006],         // Auto-forward TensorBoard port
+	"remoteUser": "vscode",         // Use the 'vscode' user provided by the base image
+	"containerEnv": {
+		"TF_CPP_MIN_LOG_LEVEL": "1" // Suppress TensorFlow INFO logs for cleaner output
+  	},
+
+	// Custom configuration options
+	"customizations": {
+
+	  // Configure VS code settings and extensions
+	  "vscode": {
+
+		// Use 'settings' to set default VS code values on container create
+		"settings": {
+			// Set the default Python interpreter
+			"python.defaultInterpreterPath": "/usr/bin/python",
+			
+			// Exclude other Python versions from Jupyter kernel list
+			// Prevents confusion by hiding system Python versions we don't want to use
+			"jupyter.kernels.excludePythonEnvironments": [
+				"/bin/python",
+				"/bin/python3",
+				"/bin/python3.10",
+				"/bin/python3.11",
+				"/usr/bin/python3",
+				"/usr/bin/python3.10",
+				"/usr/bin/python3.11"
+			],
+			
+			// Disable automatic port forwarding to give explicit control
+			"remote.restoreForwardedPorts": false
+		},
+
+		// Add the IDs of VS code extensions you want to install here
+		// These extensions provide Python development, documentation, and project management support
+		"extensions": [
+		  "-dbaeumer.vscode-eslint",                // Explicitly exclude ESLint (not needed for Python projects)
+		  "ms-python.python",                       // Core Python language support, IntelliSense, debugging
+		  "ms-toolsai.jupyter",                     // Jupyter notebook support for interactive data science
+		  "streetsidesoftware.code-spell-checker",  // Spell checking for code and documentation
+		  "ms-toolsai.tensorboard",                 // TensorBoard extension
+    	  "GitHub.copilot",                         // GitHub Copilot AI code completions
+		  "GitHub.copilot-chat"                     // GitHub Copilot Chat
+		]
+	  }
+	},
+
+	// Use 'onCreateCommand' to run commands once when the container is created
+	// This runs only on initial container creation, not on subsequent starts/attaches
+	"onCreateCommand": "mkdir -p logs && mkdir -p models && mkdir -p data && pip install -r requirements.txt",
+
+	// Use 'postCreateCommand' to run commands once after the container is created
+	"postCreateCommand": "",
+
+	// Use 'postAttachCommand' to run commands each time a user connects to the container
+	"postAttachCommand": ""
+
+}
