@@ -5,4 +5,5 @@ python-dotenv
 sacrebleu
 sacremoses
 sentencepiece
+tensorboard
 transformers
