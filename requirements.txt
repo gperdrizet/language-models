@@ -1,0 +1,6 @@
+datasets
+pyarrow<15.0.0
+sacrebleu
+sacremoses
+sentencepiece
+transformers
