@@ -5,7 +5,7 @@
 	// Based on Google's official TensorFlow 2.16 image
 	// See here: https://hub.docker.com/r/gperdrizet/deeplearning-cpu
     // And here: https://hub.docker.com/r/tensorflow/tensorflow/tags?name=2.16.1
-	"name": "DeepLearning CPU",
+	"name": "Language models CPU",
 	"image": "gperdrizet/deeplearning-cpu",
     "runArgs": [
 		"--publish", "6006:6006",   // Map TensorBoard port for easy access
