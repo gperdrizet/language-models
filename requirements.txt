@@ -1,5 +1,7 @@
 datasets
+huggingface_hub
 pyarrow<15.0.0
+python-dotenv
 sacrebleu
 sacremoses
 sentencepiece
