@@ -442,6 +442,10 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         score = result.score
         self.bleu_scores.append(score)
         
+        # Log BLEU score to TensorBoard
+        if logs is not None:
+            logs['bleu_score'] = score
+        
         # Checkpoint if this is the best BLEU score so far
         if score > self.best_bleu:
 
