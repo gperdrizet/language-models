@@ -357,3 +357,401 @@ def translate_attention(input_text, encoder_model, decoder_model, tokenizer, max
     
     # Decode token IDs back to text
     return tokenizer.decode(decoded_tokens, skip_special_tokens=True)
+
+
+# ── Transformer model ────────────────────────────────────────
+
+
+def get_positional_encoding(seq_len, d_model):
+    """
+    Generate positional encoding matrix using sine/cosine functions.
+    
+    Args:
+        seq_len: Maximum sequence length
+        d_model: Model dimension
+    
+    Returns:
+        Positional encoding matrix of shape (seq_len, d_model)
+    """
+    # Create position indices
+    positions = np.arange(seq_len)[:, np.newaxis]
+    
+    # Create dimension indices  
+    dims = np.arange(d_model)[np.newaxis, :]
+    
+    # Compute angle rates
+    angle_rates = 1 / np.power(10000, (2 * (dims // 2)) / d_model)
+    angle_rads = positions * angle_rates
+    
+    # Apply sin to even indices, cos to odd indices
+    pos_encoding = np.zeros((seq_len, d_model))
+    pos_encoding[:, 0::2] = np.sin(angle_rads[:, 0::2])
+    pos_encoding[:, 1::2] = np.cos(angle_rads[:, 1::2])
+    
+    return pos_encoding.astype(np.float32)
+
+
+class PositionalEncoding(tf.keras.layers.Layer):
+    """
+    Adds positional encoding to input embeddings.
+    
+    Args:
+        max_len: Maximum sequence length
+        d_model: Model dimension
+    """
+    
+    def __init__(self, max_len, d_model):
+        super().__init__()
+        self.pos_encoding = get_positional_encoding(max_len, d_model)
+    
+    def call(self, x):
+        seq_len = tf.shape(x)[1]
+        return x + self.pos_encoding[:seq_len, :]
+
+
+def feed_forward_network(d_model, d_ff):
+    """
+    Position-wise feed-forward network.
+    
+    Args:
+        d_model: Model dimension
+        d_ff: Feed-forward dimension (typically 4 * d_model)
+    
+    Returns:
+        Sequential model with two dense layers and ReLU activation
+    """
+    return tf.keras.Sequential([
+        tf.keras.layers.Dense(d_ff, activation='relu'),
+        tf.keras.layers.Dense(d_model)
+    ])
+
+
+class EncoderLayer(tf.keras.layers.Layer):
+    """
+    Single transformer encoder layer with self-attention and feed-forward network.
+    
+    Args:
+        d_model: Model dimension
+        d_ff: Feed-forward dimension
+        dropout_rate: Dropout rate
+    """
+    
+    def __init__(self, d_model, d_ff, dropout_rate=0.1):
+        super().__init__()
+        
+        # Simple dot-product self-attention (same as LSTM attention)
+        self.attention = tf.keras.layers.Attention(dropout=dropout_rate)
+        self.ffn = feed_forward_network(d_model, d_ff)
+        
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        
+        self.dropout1 = tf.keras.layers.Dropout(dropout_rate)
+        self.dropout2 = tf.keras.layers.Dropout(dropout_rate)
+    
+    def call(self, x, training, mask=None):
+        # Self-attention: query=key=value=x
+        attn_output = self.attention([x, x], mask=mask, training=training)
+        attn_output = self.dropout1(attn_output, training=training)
+        out1 = self.layernorm1(x + attn_output)
+        
+        # Feed-forward network
+        ffn_output = self.ffn(out1)
+        ffn_output = self.dropout2(ffn_output, training=training)
+        out2 = self.layernorm2(out1 + ffn_output)
+        
+        return out2
+
+
+class DecoderLayer(tf.keras.layers.Layer):
+    """
+    Single transformer decoder layer with masked self-attention, cross-attention, and feed-forward network.
+    
+    Args:
+        d_model: Model dimension
+        d_ff: Feed-forward dimension
+        dropout_rate: Dropout rate
+    """
+    
+    def __init__(self, d_model, d_ff, dropout_rate=0.1):
+        super().__init__()
+        
+        # Simple dot-product attention (same as LSTM attention)
+        self.self_attention = tf.keras.layers.Attention(dropout=dropout_rate)
+        self.cross_attention = tf.keras.layers.Attention(dropout=dropout_rate)
+        self.ffn = feed_forward_network(d_model, d_ff)
+        
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm3 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        
+        self.dropout1 = tf.keras.layers.Dropout(dropout_rate)
+        self.dropout2 = tf.keras.layers.Dropout(dropout_rate)
+        self.dropout3 = tf.keras.layers.Dropout(dropout_rate)
+    
+    def call(self, x, enc_output, training, look_ahead_mask=None, padding_mask=None):
+        # Masked self-attention: decoder attends to previous positions
+        attn1 = self.self_attention([x, x], mask=look_ahead_mask, training=training)
+        attn1 = self.dropout1(attn1, training=training)
+        out1 = self.layernorm1(x + attn1)
+        
+        # Cross-attention: decoder attends to encoder (same as LSTM attention)
+        attn2 = self.cross_attention([out1, enc_output], mask=padding_mask, training=training)
+        attn2 = self.dropout2(attn2, training=training)
+        out2 = self.layernorm2(out1 + attn2)
+        
+        # Feed-forward network
+        ffn_output = self.ffn(out2)
+        ffn_output = self.dropout3(ffn_output, training=training)
+        out3 = self.layernorm3(out2 + ffn_output)
+        
+        return out3
+
+
+class Encoder(tf.keras.layers.Layer):
+    """
+    Transformer encoder: embedding + positional encoding + N encoder layers.
+    
+    Args:
+        n_layers: Number of encoder layers
+        d_model: Model dimension
+        d_ff: Feed-forward dimension
+        vocab_size: Vocabulary size
+        max_len: Maximum sequence length
+        dropout_rate: Dropout rate
+    """
+    
+    def __init__(self, n_layers, d_model, d_ff, vocab_size, max_len, dropout_rate=0.1):
+        super().__init__()
+        
+        self.d_model = d_model
+        self.n_layers = n_layers
+        
+        self.embedding = tf.keras.layers.Embedding(vocab_size, d_model)
+        self.pos_encoding = PositionalEncoding(max_len, d_model)
+        
+        self.enc_layers = [
+            EncoderLayer(d_model, d_ff, dropout_rate)
+            for _ in range(n_layers)
+        ]
+        
+        self.dropout = tf.keras.layers.Dropout(dropout_rate)
+    
+    def call(self, x, training, mask=None):
+        # Embedding + positional encoding
+        x = self.embedding(x)
+        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+        x = self.pos_encoding(x)
+        x = self.dropout(x, training=training)
+        
+        # Pass through encoder layers
+        for enc_layer in self.enc_layers:
+            x = enc_layer(x, training, mask)
+        
+        return x
+
+
+class Decoder(tf.keras.layers.Layer):
+    """
+    Transformer decoder: embedding + positional encoding + N decoder layers.
+    
+    Args:
+        n_layers: Number of decoder layers
+        d_model: Model dimension
+        d_ff: Feed-forward dimension
+        vocab_size: Vocabulary size
+        max_len: Maximum sequence length
+        dropout_rate: Dropout rate
+    """
+    
+    def __init__(self, n_layers, d_model, d_ff, vocab_size, max_len, dropout_rate=0.1):
+        super().__init__()
+        
+        self.d_model = d_model
+        self.n_layers = n_layers
+        
+        self.embedding = tf.keras.layers.Embedding(vocab_size, d_model)
+        self.pos_encoding = PositionalEncoding(max_len, d_model)
+        
+        self.dec_layers = [
+            DecoderLayer(d_model, d_ff, dropout_rate)
+            for _ in range(n_layers)
+        ]
+        
+        self.dropout = tf.keras.layers.Dropout(dropout_rate)
+    
+    def call(self, x, enc_output, training, look_ahead_mask=None, padding_mask=None):
+        # Embedding + positional encoding
+        x = self.embedding(x)
+        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+        x = self.pos_encoding(x)
+        x = self.dropout(x, training=training)
+        
+        # Pass through decoder layers
+        for dec_layer in self.dec_layers:
+            x = dec_layer(x, enc_output, training, look_ahead_mask, padding_mask)
+        
+        return x
+
+
+def create_look_ahead_mask(size):
+    """
+    Create mask to prevent attention to future positions.
+    
+    Args:
+        size: Sequence length
+    
+    Returns:
+        Look-ahead mask of shape (size, size)
+    """
+    mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
+    return mask
+
+
+def create_padding_mask(seq):
+    """
+    Create mask for padding tokens (zeros).
+    
+    Args:
+        seq: Input sequence
+    
+    Returns:
+        Padding mask of shape (batch, 1, 1, seq_len)
+    """
+    seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
+    return seq[:, tf.newaxis, tf.newaxis, :]
+
+
+class Transformer(Model):
+    """
+    Complete transformer model for sequence-to-sequence tasks.
+    
+    Args:
+        n_layers: Number of encoder/decoder layers
+        d_model: Model dimension
+        d_ff: Feed-forward dimension
+        input_vocab_size: Source vocabulary size
+        target_vocab_size: Target vocabulary size
+        max_encoder_len: Maximum encoder sequence length
+        max_decoder_len: Maximum decoder sequence length
+        dropout_rate: Dropout rate
+    """
+    
+    def __init__(self, n_layers, d_model, d_ff, input_vocab_size, 
+                 target_vocab_size, max_encoder_len, max_decoder_len, dropout_rate=0.1):
+        super().__init__()
+        
+        self.encoder = Encoder(n_layers, d_model, d_ff, 
+                              input_vocab_size, max_encoder_len, dropout_rate)
+        
+        self.decoder = Decoder(n_layers, d_model, d_ff,
+                              target_vocab_size, max_decoder_len, dropout_rate)
+        
+        self.final_layer = tf.keras.layers.Dense(target_vocab_size)
+    
+    def call(self, inputs, training=False):
+        encoder_input, decoder_input = inputs
+        
+        # Create masks
+        enc_padding_mask = create_padding_mask(encoder_input)
+        dec_padding_mask = create_padding_mask(encoder_input)
+        
+        look_ahead_mask = create_look_ahead_mask(tf.shape(decoder_input)[1])
+        dec_target_padding_mask = create_padding_mask(decoder_input)
+        combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
+        
+        # Encoder
+        enc_output = self.encoder(encoder_input, training, enc_padding_mask)
+        
+        # Decoder
+        dec_output = self.decoder(decoder_input, enc_output, training, 
+                                 combined_mask, dec_padding_mask)
+        
+        # Final linear layer
+        output = self.final_layer(dec_output)
+        
+        return output
+
+
+def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, 
+                           d_model=256, n_layers=4, d_ff=512, dropout_rate=0.1):
+    """
+    Build and compile transformer model for neural machine translation.
+    
+    Args:
+        num_tokens: Vocabulary size
+        max_encoder_len: Maximum encoder sequence length
+        max_decoder_len: Maximum decoder sequence length
+        d_model: Model dimension (default: 256)
+        n_layers: Number of encoder/decoder layers (default: 4)
+        d_ff: Feed-forward dimension (default: 512)
+        dropout_rate: Dropout rate (default: 0.1)
+    
+    Returns:
+        Compiled transformer model
+    """
+    model = Transformer(
+        n_layers=n_layers,
+        d_model=d_model,
+        d_ff=d_ff,
+        input_vocab_size=num_tokens,
+        target_vocab_size=num_tokens,
+        max_encoder_len=max_encoder_len,
+        max_decoder_len=max_decoder_len,
+        dropout_rate=dropout_rate
+    )
+    
+    model.compile(
+        optimizer='adam',
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        metrics=['accuracy']
+    )
+    
+    return model
+
+
+def translate_transformer(input_text, model, tokenizer, max_encoder_len, max_decoder_len):
+    """
+    Translate text using trained transformer with greedy decoding.
+    
+    Args:
+        input_text: Source text to translate
+        model: Trained transformer model
+        tokenizer: Tokenizer for encoding/decoding
+        max_encoder_len: Maximum encoder sequence length
+        max_decoder_len: Maximum decoder sequence length
+    
+    Returns:
+        Translated text
+    """
+    # Tokenize input
+    encoder_input = tokenizer(
+        input_text,
+        padding='max_length',
+        truncation=True,
+        max_length=max_encoder_len,
+        return_tensors='tf'
+    )['input_ids']
+    
+    # Initialize decoder input with PAD token (BOS)
+    decoder_input = tf.constant([[tokenizer.pad_token_id]], dtype=tf.int32)
+    
+    # Autoregressive generation
+    for _ in range(max_decoder_len - 1):
+        # Predict next token
+        predictions = model([encoder_input, decoder_input], training=False)
+        
+        # Get last token prediction
+        predicted_id = tf.argmax(predictions[:, -1:, :], axis=-1, output_type=tf.int32)
+        
+        # Stop if EOS token
+        if predicted_id.numpy()[0, 0] == tokenizer.eos_token_id:
+            break
+        
+        # Append to decoder input
+        decoder_input = tf.concat([decoder_input, predicted_id], axis=-1)
+    
+    # Decode tokens to text
+    output_text = tokenizer.decode(decoder_input[0], skip_special_tokens=True)
+    
+    return output_text
