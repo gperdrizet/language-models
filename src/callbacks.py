@@ -31,7 +31,8 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         checkpoint_dir=None,
         sample_size=100,
         latent_dim=256,
-        restore_best_weights=True
+        restore_best_weights=True,
+        existing_metrics=None
     ):
         """
         Initialize BLEU callback.
@@ -47,6 +48,7 @@ class BLEUCallback(tf.keras.callbacks.Callback):
             sample_size: Number of pairs to evaluate per epoch
             latent_dim: Latent dimension used in model
             restore_best_weights: Whether to restore best weights after training
+            existing_metrics: Existing training metrics dict for resume training (optional)
         """
         super().__init__()
         self.pairs = pairs
@@ -64,12 +66,21 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         if self.checkpoint_dir:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
-        # Track BLEU scores and best model weights
-        self.bleu_scores = []
+        # Track BLEU scores and best model
+        if existing_metrics:
+            # Resume from existing metrics - only need BLEU-related data
+            existing_history = existing_metrics.get('training_history', {})
+            self.bleu_scores = existing_history.get('bleu_score', [])
+            self.best_bleu = existing_metrics.get('best_bleu', 0.0)
+            self.best_epoch = existing_metrics.get('best_epoch', 0)
+        else:
+            # Start fresh
+            self.bleu_scores = []
+            self.best_bleu = 0.0
+            self.best_epoch = 0
+        
         self.bleu = BLEU()
-        self.best_bleu = 0.0
         self.best_weights = None
-        self.best_epoch = 0
         
         # Fixed sample for consistent evaluation across epochs
         np.random.seed(315)
