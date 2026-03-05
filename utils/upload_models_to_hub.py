@@ -232,117 +232,18 @@ def build_models_from_checkpoint(checkpoint_path, model_type, model_dir):
 def create_model_card(model_config, model_name):
     """Generate a model card (README.md) for the model."""
     
-    return f"""---
-tags:
-- neural-machine-translation
-- lstm
-- attention
-- english
-- french
-- opus-100
-- seq2seq
-license: mit
----
-
-# {model_config['description']}
-
-This model was trained for English-to-French neural machine translation using the OPUS-100 dataset.
-
-## Model Details
-
-- **Architecture:** {model_config['architecture']}
-- **Training data:** OPUS-100 English-French parallel corpus (100,000 sentence pairs, filtered to ≤20 tokens)
-- **Tokenizer:** MarianTokenizer (Helsinki-NLP/opus-mt-en-fr)
-- **Vocabulary size:** ~8,000 subword tokens
-- **Latent dimension:** 256
-- **Max sequence length:** 22 (encoder), 24 (decoder)
-
-## Training Configuration
-
-- **Optimizer:** Adam (learning rate: 0.001)
-- **Loss function:** Sparse categorical crossentropy
-- **Batch size:** 32
-- **Epochs:** 15
-- **Validation split:** 10%
-
-## Usage
-
-### Loading and using the model for translation
-
-```python
-from huggingface_hub import snapshot_download
-from transformers import MarianTokenizer
-import tensorflow as tf
-import os
-
-# Download all model files to cache
-model_path = snapshot_download(repo_id='{model_config['repo_id']}')
-
-# Load inference models (SavedModel format)
-encoder_model = tf.keras.models.load_model(os.path.join(model_path, 'encoder_model'))
-decoder_model = tf.keras.models.load_model(os.path.join(model_path, 'decoder_model'))
-
-# Load tokenizer
-tokenizer = MarianTokenizer.from_pretrained(model_path)
-
-# Translate (requires translate function from the training repo)
-# Example:
-# from src import translate_lstm  # or translate_attention for attention model
-# translation = translate_lstm(input_text, encoder_model, decoder_model, tokenizer, 22, 24)
-```
-
-### For deployment/web apps
-
-Models are saved in TensorFlow SavedModel format for:
-- **Better version compatibility** across TensorFlow versions
-- **Production deployment** (TF Serving, TF Lite, TF.js)
-- **Instant loading** - no need to rebuild architecture
-
-### Fine-tuning for other language pairs
-
-Load the training model to continue training or fine-tune:
-
-```python
-# Load training model
-training_model = tf.keras.models.load_model(os.path.join(model_path, 'training_model'))
-
-# Continue training with new data
-training_model.fit(new_encoder_input, new_decoder_target, epochs=5)
-```
-
-This model can be fine-tuned for other European language pairs (e.g., English-German, English-Spanish) with minimal additional training.
-
-See the accompanying fine-tuning notebook for a complete example.
-
-## Limitations
-
-- Trained only on short sentences (≤20 tokens)
-- Performance degrades on longer sequences
-- Best suited for European language pairs with similar syntax
-- Uses greedy decoding (no beam search)
-
-## Citation
-
-If you use this model, please cite:
-
-```
-@misc{{english-french-{model_name},
-  author = {{George Perdrizet}},
-  title = {{English-French Neural Machine Translation}},
-  year = {{2026}},
-  publisher = {{Hugging Face}},
-  howpublished = {{\\url{{https://huggingface.co/{model_config['repo_id']}}}}},
-}}
-```
-
-## Model Card Authors
-
-George Perdrizet
-
-## Model Card Contact
-
-gperdrizet on GitHub
-"""
+    # Load template from file
+    template_path = Path(__file__).parent / 'model_cards' / 'model_card_template.md'
+    with open(template_path, 'r') as f:
+        template = f.read()
+    
+    # Replace placeholders with actual values
+    model_card = template.replace('{{description}}', model_config['description'])
+    model_card = model_card.replace('{{architecture}}', model_config['architecture'])
+    model_card = model_card.replace('{{repo_id}}', model_config['repo_id'])
+    model_card = model_card.replace('{{model_name}}', model_name)
+    
+    return model_card
 
 
 def upload_model(model_name, token, force=False):
