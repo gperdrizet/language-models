@@ -2,6 +2,10 @@
 
 Educational notebooks demonstrating encoder-decoder architectures for neural machine translation (English-French) with TensorFlow/Keras.
 
+Models are avalible on Hugging Face:
+- [gperdrizet/english-french-LSTM](https://huggingface.co/gperdrizet/english-french-LSTM)
+- [gperdrizet/english-french-LSTM-attention](https://huggingface.co/gperdrizet/english-french-LSTM-attention)
+
 ## Overview
 
 This project contains three Jupyter notebooks that progressively introduce neural machine translation concepts:
