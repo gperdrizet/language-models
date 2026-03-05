@@ -123,6 +123,21 @@ pip install -r requirements.txt
 - **Tokenizer:** `MarianTokenizer.from_pretrained()` — multilingual SentencePiece model
 - **Evaluation:** `sacrebleu.metrics.BLEU` for corpus-level scoring (not sentence-level)
 
+## Model Sharing
+
+**Upload utility:** `utils/upload_models_to_hub.py` uploads trained models to Hugging Face Hub for sharing and transfer learning.
+
+Usage:
+```bash
+python utils/upload_models_to_hub.py [--model lstm|attention|both]
+```
+
+Requirements:
+- `HF_TOKEN` in `.env` file (Hugging Face access token)
+- Training checkpoints in `models/checkpoints/{lstm,lstm-attention}/` directory
+
+The script automatically finds and uploads the latest checkpoint (highest epoch number) from the training runs. The script automatically generates model cards with architecture details, training configuration, usage examples, and fine-tuning instructions.
+
 ## Security
 
-No authentication or sensitive data handling — uses public datasets from Hugging Face.
+HF_TOKEN stored in `.env` file (excluded from git via `.gitignore`). Public datasets from Hugging Face require no authentication.
