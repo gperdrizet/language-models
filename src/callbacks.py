@@ -7,6 +7,7 @@ model training, including BLEU score evaluation.
 
 import numpy as np
 import tensorflow as tf
+from pathlib import Path
 from sacrebleu.metrics import BLEU
 
 
@@ -27,6 +28,7 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         max_decoder_len,
         translate_fn,
         build_inference_fn,
+        checkpoint_dir=None,
         sample_size=100,
         latent_dim=256,
         restore_best_weights=True
@@ -41,6 +43,7 @@ class BLEUCallback(tf.keras.callbacks.Callback):
             max_decoder_len: Maximum decoder sequence length
             translate_fn: Translation function (translate_lstm or translate_attention)
             build_inference_fn: Function to build inference models
+            checkpoint_dir: Directory to save checkpoints (e.g., '../models/lstm/checkpoints')
             sample_size: Number of pairs to evaluate per epoch
             latent_dim: Latent dimension used in model
             restore_best_weights: Whether to restore best weights after training
@@ -52,9 +55,14 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         self.max_decoder_len = max_decoder_len
         self.translate_fn = translate_fn
         self.build_inference_fn = build_inference_fn
+        self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
         self.sample_size = min(sample_size, len(pairs))
         self.latent_dim = latent_dim
         self.restore_best_weights = restore_best_weights
+        
+        # Create checkpoint directory if specified
+        if self.checkpoint_dir:
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
         # Track BLEU scores and best model weights
         self.bleu_scores = []
@@ -102,10 +110,18 @@ class BLEUCallback(tf.keras.callbacks.Callback):
             self.best_bleu = score
             self.best_weights = self.model.get_weights()
             self.best_epoch = epoch
-            print(f' - BLEU: {score:.2f} (best)')
+            
+            # Save checkpoint if directory specified
+            if self.checkpoint_dir:
+                checkpoint_filename = f'model_epoch_{epoch+1:02d}_best_bleu_{score:.2f}.h5'
+                checkpoint_path = self.checkpoint_dir / checkpoint_filename
+                self.model.save_weights(str(checkpoint_path))
+                # print(f' - BLEU: {score:.2f} (best) - saved {checkpoint_filename}')
+            # else:
+            #     print(f' - BLEU: {score:.2f} (best)')
 
-        else:
-            print(f' - BLEU: {score:.2f} (best: {self.best_bleu:.2f})')
+        # else:
+        #     print(f' - BLEU: {score:.2f} (best: {self.best_bleu:.2f})')
     
     def on_train_end(self, logs=None):
         """Restore best weights after training completes."""
