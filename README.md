@@ -6,7 +6,6 @@ Models are avalible on Hugging Face:
 - [gperdrizet/english-french-LSTM](https://huggingface.co/gperdrizet/english-french-LSTM)
 - [gperdrizet/english-french-LSTM-attention](https://huggingface.co/gperdrizet/english-french-LSTM-attention)
 
-
 The project contains three Jupyter notebooks that progressively introduce neural machine translation concepts:
 
 1. **01-encoder-decoder-NMT-LSTM.ipynb** - Bidirectional LSTM encoder-decoder baseline
