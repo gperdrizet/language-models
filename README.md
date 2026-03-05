@@ -1,14 +1,11 @@
-# Neural machine translation with LSTMs
+# Language models
 
-Educational notebooks demonstrating encoder-decoder architectures for neural machine translation (English-French) with TensorFlow/Keras.
+This project introduces students to transformer models by building concepts sequentially, starting with RNN-based encoder-decoder architectures. By understanding how attention mechanisms solve the limitations of LSTMs, students gain the foundation needed to understand modern transformer architectures.
 
 Models are avalible on Hugging Face:
 - [gperdrizet/english-french-LSTM](https://huggingface.co/gperdrizet/english-french-LSTM)
 - [gperdrizet/english-french-LSTM-attention](https://huggingface.co/gperdrizet/english-french-LSTM-attention)
 
-## Overview
-
-This project introduces students to transformer models by building concepts sequentially, starting with RNN-based encoder-decoder architectures. By understanding how attention mechanisms solve the limitations of LSTMs, students gain the foundation needed to understand modern transformer architectures.
 
 The project contains three Jupyter notebooks that progressively introduce neural machine translation concepts:
 
