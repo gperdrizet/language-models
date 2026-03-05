@@ -1,4 +1,4 @@
-# Model Upload Utility
+# Model upload utility
 
 This directory contains utility scripts for managing the neural machine translation models.
 
@@ -10,7 +10,7 @@ Converts training checkpoints to SavedModel format and uploads to Hugging Face H
 1. Finds the latest checkpoint (highest epoch number) from training
 2. Rebuilds model architecture and loads checkpoint weights
 3. Builds inference models (encoder/decoder) from training model
-4. Saves all as SavedModel format (better compatibility)
+4. Saves all as SavedModel format
 5. Generates comprehensive model card
 6. Uploads to Hugging Face Hub
 
@@ -18,7 +18,7 @@ Converts training checkpoints to SavedModel format and uploads to Hugging Face H
 
 1. **Hugging Face account and token:**
    - Create an account at [huggingface.co](https://huggingface.co)
-   - Generate a token at [Settings → Access Tokens](https://huggingface.co/settings/tokens)
+   - Generate a token at [Settings > Access Tokens](https://huggingface.co/settings/tokens)
    - Add token to `.env` file in project root:
      ```
      HF_TOKEN=your_token_here
@@ -29,7 +29,6 @@ Converts training checkpoints to SavedModel format and uploads to Hugging Face H
    - Checkpoints are automatically saved during training to:
      - `models/checkpoints/lstm/model_epoch_XX_val_loss_Y.YYYY.h5`
      - `models/checkpoints/lstm-attention/model_epoch_XX_val_loss_Y.YYYY.h5`
-   - **No need to run any save section** - checkpoints are all you need!
 
 ### Usage
 
@@ -58,7 +57,7 @@ python utils/upload_models_to_hub.py --force
 1. **Searches for checkpoints:** Finds the latest checkpoint by epoch number
 2. **Builds models:** Rebuilds training model architecture and loads checkpoint weights
 3. **Creates inference models:** Builds encoder/decoder for deployment
-4. **Converts to SavedModel:** Saves all models in TensorFlow SavedModel format for better compatibility
+4. **Converts to SavedModel:** Saves all models in TensorFlow SavedModel format
 5. **Generates model card:** Creates comprehensive README with:
    - Model architecture details
    - Training configuration
@@ -76,9 +75,8 @@ Models will be uploaded to:
 View online at `https://huggingface.co/<repo_id>`
 
 SavedModel format provides:
-- **Better version compatibility** across TensorFlow versions
+- **Cross-version compatibility** across TensorFlow versions
 - **Production deployment** support (TF Serving, TF Lite, TF.js)
-- **Instant loading** - no need to rebuild architecture
 
 Users can then load models directly with:
 ```python

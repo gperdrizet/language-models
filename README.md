@@ -14,7 +14,7 @@ This project contains three Jupyter notebooks that progressively introduce neura
 2. **02-encoder-decoder-LSTM-attention.ipynb** - Adding Luong attention mechanism
 3. **03-fine-tuning-activity.ipynb** - Transfer learning activity (English-German fine-tuning)
 
-## Quick Start
+## Quick start
 
 ### Prerequisites
 
@@ -22,7 +22,7 @@ This project contains three Jupyter notebooks that progressively introduce neura
 pip install -r requirements.txt
 ```
 
-### Run Notebooks
+### Run notebooks
 
 Open notebooks in Jupyter or VS Code and execute cells sequentially. Notebooks are self-contained with inline documentation.
 
@@ -31,25 +31,25 @@ Open notebooks in Jupyter or VS Code and execute cells sequentially. Notebooks a
 - **Notebook 01 & 02:** Train from scratch (~5 hours on GPU for full 15 epochs)
 - **Notebook 03:** Fine-tune pre-trained model (~1-2 hours for 5 epochs)
 
-### Visualize Training
+### Visualize training
 
 ```bash
 tensorboard --logdir logs/
 ```
 
-## Project Structure
+## Project structure
 
 ```
 .
-├── notebooks/          # Jupyter notebooks
-├── src/                # Reusable model functions and callbacks
-├── utils/              # Utility scripts (model upload, etc.)
-├── models/             # Saved models and checkpoints (generated)
-├── logs/               # TensorBoard logs (generated)
-└── data/               # Dataset cache (generated)
+├── notebooks/   # Jupyter notebooks
+├── src/         # Reusable model functions and callbacks
+├── utils/       # Utility scripts (model upload, etc.)
+├── models/      # Saved models and checkpoints (generated)
+├── logs/        # TensorBoard logs (generated)
+└── data/        # Dataset cache (generated)
 ```
 
-## Model Upload
+## Model upload
 
 After training, upload models to Hugging Face Hub:
 
@@ -63,7 +63,7 @@ The upload script automatically:
 3. Generates model card (README)
 4. Uploads to Hugging Face Hub
 
-**No need to run any notebook save sections** - the script works directly from checkpoints saved during training.
+The script works directly from checkpoints saved during training.
 
 See [utils/README.md](utils/README.md) for detailed instructions.
 
@@ -71,7 +71,7 @@ See [utils/README.md](utils/README.md) for detailed instructions.
 
 - **Subword tokenization:** MarianTokenizer (SentencePiece) for handling rare words
 - **Bidirectional encoder:** Captures context from both directions
-- **Attention mechanism:** Luong-style attention for better long-range dependencies
+- **Attention mechanism:** Luong-style attention over encoder hidden states
 - **BLEU evaluation:** Automatic corpus-level scoring during training
 - **TensorBoard logging:** Loss, accuracy, and BLEU score visualization
 - **Transfer learning:** Fine-tune for new language pairs in 5 epochs
@@ -80,10 +80,10 @@ See [utils/README.md](utils/README.md) for detailed instructions.
 
 OPUS-100 English-French parallel corpus from Hugging Face:
 - 100,000 sentence pairs
-- Filtered to ≤20 tokens per sentence
+- Filtered to <=20 tokens per sentence
 - 10% validation split
 
-## Architecture Details
+## Architecture details
 
 **LSTM model:**
 - Bidirectional LSTM encoder (256 units per direction)
@@ -94,7 +94,7 @@ OPUS-100 English-French parallel corpus from Hugging Face:
 **Attention model:**
 - Same as LSTM + Luong attention layer
 - Attention weights over encoder hidden states
-- Improved handling of long sentences
+- Handles long-range dependencies
 
 ## License
 

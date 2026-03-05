@@ -14,16 +14,17 @@ license: mit
 
 This model was trained for English-to-French neural machine translation using the OPUS-100 dataset.
 
-## Model Details
+## Model details
 
 - **Architecture:** {{architecture}}
-- **Training data:** OPUS-100 English-French parallel corpus (100,000 sentence pairs, filtered to ≤20 tokens)
+- **Repository:** [gperdrizet/language-models](https://github.com/gperdrizet/language-models)
+- **Training data:** OPUS-100 English-French parallel corpus (100,000 sentence pairs, filtered to <=20 tokens)
 - **Tokenizer:** MarianTokenizer (Helsinki-NLP/opus-mt-en-fr)
-- **Vocabulary size:** ~8,000 subword tokens
+- **Vocabulary size:** ~60,000 subword tokens
 - **Latent dimension:** 256
 - **Max sequence length:** 22 (encoder), 24 (decoder)
 
-## Training Configuration
+## Training configuration
 
 - **Optimizer:** Adam (learning rate: 0.001)
 - **Loss function:** Sparse categorical crossentropy
@@ -60,9 +61,8 @@ tokenizer = MarianTokenizer.from_pretrained(model_path)
 ### For deployment/web apps
 
 Models are saved in TensorFlow SavedModel format for:
-- **Better version compatibility** across TensorFlow versions
 - **Production deployment** (TF Serving, TF Lite, TF.js)
-- **Instant loading** - no need to rebuild architecture
+- **Cross-version compatibility** across TensorFlow versions
 
 ### Fine-tuning for other language pairs
 
@@ -82,7 +82,7 @@ See the accompanying fine-tuning notebook for a complete example.
 
 ## Limitations
 
-- Trained only on short sentences (≤20 tokens)
+- Trained only on short sentences (<=20 tokens)
 - Performance degrades on longer sequences
 - Best suited for European language pairs with similar syntax
 - Uses greedy decoding (no beam search)
@@ -101,10 +101,6 @@ If you use this model, please cite:
 }
 ```
 
-## Model Card Authors
+## Model card authors
 
-George Perdrizet
-
-## Model Card Contact
-
-gperdrizet on GitHub
+[George Perdrizet](https://github.com/gperdrizet)

@@ -1,6 +1,6 @@
 # Project Guidelines
 
-## Code Style
+## Code style
 
 This project uses **Jupyter notebooks** for neural machine translation research with TensorFlow/Keras. Follow patterns from [01-encoder-decoder-NMT-LSTM.ipynb](../notebooks/01-encoder-decoder-NMT-LSTM.ipynb) and [02-encoder-decoder-LSTM-attention.ipynb](../notebooks/02-encoder-decoder-LSTM-attention.ipynb).
 
@@ -13,6 +13,7 @@ import tensorflow as tf
 
 # Configure GPU memory growth
 gpus = tf.config.list_physical_devices('GPU')
+
 if gpus:
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
@@ -21,6 +22,12 @@ if gpus:
 **Reproducibility:** Always set `np.random.seed(315)` and `tf.random.set_seed(315)` early in notebooks.
 
 **Notebook editing:** Use notebook editing tools (like `edit_notebook_file`) rather than modifying JSON on disk. Editing notebook JSON directly may miss changes the user has made in the active notebook viewer and doesn't let them see changes after they have been made.
+
+**Import organization:** Consolidate all imports (except `src` module imports) in the main imports cell at the top of notebooks. This includes:
+- Standard library: `os`, `sys`, `logging`, `datetime`
+- Third-party: `numpy`, `tensorflow`, `matplotlib`, `datasets`, `transformers`, `sacrebleu`
+- Keras components: `layers`, `callbacks`
+- Keep `src` imports in their respective usage cells for context
 
 ### General patterns
 - **Docstrings**: Google style with `Args:` and `Returns:` sections
@@ -72,7 +79,10 @@ if gpus:
 ## Markdown and comments style
 
 - Use sentence case for all titles, headings, list elements, etc
-- Do not use emojis or symbols
+- Do not use emojis or decorative symbols (✓ ✗ ★)
+- Functional symbols like → for transformations/translations are acceptable
+- Use standard operators: `<=` not `≤`, `-` not `—` (em dash)
+- Keep documentation factual - avoid comparative language ("better", "improved", "enhancement")
 
 ## Architecture
 
@@ -91,7 +101,7 @@ if gpus:
 - Inference: Start with `np.array([[tokenizer.pad_token_id]])`
 - This pattern ensures training/inference consistency
 
-## Build and Test
+## Build and test
 
 **Install dependencies:**
 ```bash
@@ -100,30 +110,32 @@ pip install -r requirements.txt
 
 **Run notebooks:** Use Jupyter or VS Code notebook interface. Notebooks are self-contained with inline documentation.
 
-**No automated tests** — validation uses BLEU scores computed via `BLEUCallback` during training.
+**No automated tests** - validation uses BLEU scores computed via `BLEUCallback` during training.
 
-## Project Conventions
+## Project conventions
 
 **Tokenization:** Use Hugging Face `MarianTokenizer` for subword tokenization (example: `Helsinki-NLP/opus-mt-en-fr`). The tokenizer handles both source and target languages.
+- Vocabulary size: ~60,000 tokens (59,514 for Helsinki-NLP/opus-mt-en-fr)
 
-**Sequence length constants:**
-- `MAX_SEQ_LENGTH = 20` (filter dataset)
-- `MAX_ENCODER_LEN = 22` (padding for special tokens)
-- `MAX_DECODER_LEN = 24` (extra space for BOS)
+**Sequence length configuration:**
+- `max_seq_length = 20` (filter dataset)
+- `max_encoder_len = 22` (padding for special tokens)
+- `max_decoder_len = 24` (extra space for BOS)
+- Note: Use lowercase for configuration variables, not ALL_CAPS
 
 **Model checkpointing:** `BLEUCallback` tracks best BLEU score and restores weights at end of training. This handles overfitting where validation loss diverges but translation quality improves.
 
-**Translation:** Greedy decoding in `translate()` function — decoder outputs fed back autoregressively until `eos_token_id`.
+**Translation:** Greedy decoding in `translate()` function - decoder outputs fed back autoregressively until `eos_token_id`.
 
 **ASCII diagrams:** Notebooks include detailed architecture diagrams using ASCII art. Maintain this pattern for new architectures.
 
-## Integration Points
+## Integration points
 
 - **Datasets:** `load_dataset('Helsinki-NLP/opus-100', 'en-fr')` for parallel text
-- **Tokenizer:** `MarianTokenizer.from_pretrained()` — multilingual SentencePiece model
+- **Tokenizer:** `MarianTokenizer.from_pretrained()` - multilingual SentencePiece model
 - **Evaluation:** `sacrebleu.metrics.BLEU` for corpus-level scoring (not sentence-level)
 
-## Model Sharing
+## Model sharing
 
 **Upload utility:** `utils/upload_models_to_hub.py` uploads trained models to Hugging Face Hub for sharing and transfer learning.
 
