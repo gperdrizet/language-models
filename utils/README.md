@@ -4,9 +4,15 @@ This directory contains utility scripts for managing the neural machine translat
 
 ## upload_models_to_hub.py
 
-Uploads trained English-French NMT models to Hugging Face Hub for sharing and fine-tuning.
+Converts training checkpoints to SavedModel format and uploads to Hugging Face Hub.
 
-**The script automatically finds and uploads the latest checkpoint** (highest epoch number) from the training runs.
+**The script automatically:**
+1. Finds the latest checkpoint (highest epoch number) from training
+2. Rebuilds model architecture and loads checkpoint weights
+3. Builds inference models (encoder/decoder) from training model
+4. Saves all as SavedModel format (better compatibility)
+5. Generates comprehensive model card
+6. Uploads to Hugging Face Hub
 
 ### Prerequisites
 
@@ -20,10 +26,10 @@ Uploads trained English-French NMT models to Hugging Face Hub for sharing and fi
 
 2. **Trained models:**
    - Train models using notebooks 01 and/or 02
-   - Checkpoints are automatically saved during training at:
+   - Checkpoints are automatically saved during training to:
      - `models/checkpoints/lstm/model_epoch_XX_val_loss_Y.YYYY.h5`
      - `models/checkpoints/lstm-attention/model_epoch_XX_val_loss_Y.YYYY.h5`
-   - The script will upload the checkpoint with the highest epoch number
+   - **No need to run any save section** - checkpoints are all you need!
 
 ### Usage
 
@@ -49,15 +55,17 @@ python utils/upload_models_to_hub.py --force
 
 ### What it does
 
-1. Validates that model files exist locally
-2. Creates/updates Hugging Face repository
-3. Generates comprehensive model card (README.md) with:
+1. **Searches for checkpoints:** Finds the latest checkpoint by epoch number
+2. **Builds models:** Rebuilds training model architecture and loads checkpoint weights
+3. **Creates inference models:** Builds encoder/decoder for deployment
+4. **Converts to SavedModel:** Saves all models in TensorFlow SavedModel format for better compatibility
+5. **Generates model card:** Creates comprehensive README with:
    - Model architecture details
    - Training configuration
-   - Usage instructions
+   - Usage instructions for loading and translation
    - Fine-tuning guide
    - Limitations and citations
-4. Uploads model weights and README to Hugging Face Hub
+6. **Uploads to Hugging Face:** Uploads all files (training model, encoder, decoder, config, tokenizer, README)
 
 ### Output
 
@@ -66,3 +74,18 @@ Models will be uploaded to:
 - Attention: `gperdrizet/english-french-LSTM-attention`
 
 View online at `https://huggingface.co/<repo_id>`
+
+SavedModel format provides:
+- **Better version compatibility** across TensorFlow versions
+- **Production deployment** support (TF Serving, TF Lite, TF.js)
+- **Instant loading** - no need to rebuild architecture
+
+Users can then load models directly with:
+```python
+from huggingface_hub import snapshot_download
+import tensorflow as tf
+
+model_path = snapshot_download(repo_id='gperdrizet/english-french-LSTM')
+encoder = tf.keras.models.load_model(f'{model_path}/encoder_model')
+decoder = tf.keras.models.load_model(f'{model_path}/decoder_model')
+```

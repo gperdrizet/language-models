@@ -41,7 +41,7 @@ tensorboard --logdir logs/
 
 ```
 .
-├── notebooks/           # Jupyter notebooks
+├── notebooks/          # Jupyter notebooks
 ├── src/                # Reusable model functions and callbacks
 ├── utils/              # Utility scripts (model upload, etc.)
 ├── models/             # Saved models and checkpoints (generated)
@@ -51,11 +51,19 @@ tensorboard --logdir logs/
 
 ## Model Upload
 
-After training, upload models to Hugging Face Hub for sharing:
+After training, upload models to Hugging Face Hub:
 
 ```bash
 python utils/upload_models_to_hub.py
 ```
+
+The upload script automatically:
+1. Finds the latest training checkpoint
+2. Rebuilds models and converts to SavedModel format
+3. Generates model card (README)
+4. Uploads to Hugging Face Hub
+
+**No need to run any notebook save sections** - the script works directly from checkpoints saved during training.
 
 See [utils/README.md](utils/README.md) for detailed instructions.
 
