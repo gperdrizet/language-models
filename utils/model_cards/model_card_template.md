@@ -37,10 +37,9 @@ This model was trained for English-to-French neural machine translation using th
 ### Loading and using the model for translation
 
 ```python
+import tensorflow as tf
 from huggingface_hub import snapshot_download
 from transformers import MarianTokenizer
-import tensorflow as tf
-import os
 
 # Download all model files to cache
 model_path = snapshot_download(repo_id='{{repo_id}}')
@@ -51,11 +50,6 @@ decoder_model = tf.keras.models.load_model(os.path.join(model_path, 'decoder_mod
 
 # Load tokenizer
 tokenizer = MarianTokenizer.from_pretrained(model_path)
-
-# Translate (requires translate function from the training repo)
-# Example:
-# from src import translate_lstm  # or translate_attention for attention model
-# translation = translate_lstm(input_text, encoder_model, decoder_model, tokenizer, 22, 24)
 ```
 
 ### For deployment/web apps

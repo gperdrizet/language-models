@@ -80,8 +80,8 @@ SavedModel format provides:
 
 Users can then load models directly with:
 ```python
-from huggingface_hub import snapshot_download
 import tensorflow as tf
+from huggingface_hub import snapshot_download
 
 model_path = snapshot_download(repo_id='gperdrizet/english-french-LSTM')
 encoder = tf.keras.models.load_model(f'{model_path}/encoder_model')
