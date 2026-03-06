@@ -99,10 +99,21 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         for idx in self.sample_indices:
 
             en_text, fr_ref = self.pairs[idx]
-            fr_hyp = self.translate_fn(
-                en_text, encoder_model, decoder_model,
-                self.tokenizer, self.max_encoder_len, self.max_decoder_len
-            )
+            
+            # Handle both LSTM (separate encoder/decoder) and transformer (single model)
+            if encoder_model is None and decoder_model is None:
+                # Transformer case: pass the full model
+                fr_hyp = self.translate_fn(
+                    en_text, self.model,
+                    self.tokenizer, self.max_encoder_len, self.max_decoder_len
+                )
+            else:
+                # LSTM case: pass separate encoder and decoder models
+                fr_hyp = self.translate_fn(
+                    en_text, encoder_model, decoder_model,
+                    self.tokenizer, self.max_encoder_len, self.max_decoder_len
+                )
+            
             hypotheses.append(fr_hyp)
             references.append(fr_ref)
         

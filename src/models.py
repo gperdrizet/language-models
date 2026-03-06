@@ -453,7 +453,9 @@ class EncoderLayer(tf.keras.layers.Layer):
     
     def call(self, x, training, mask=None):
         # Self-attention: query=key=value=x
-        attn_output = self.attention([x, x], mask=mask, training=training)
+        # Pass mask as [query_mask, value_mask] list if provided
+        mask_list = [mask, mask] if mask is not None else None
+        attn_output = self.attention([x, x], mask=mask_list, training=training)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = self.layernorm1(x + attn_output)
         
@@ -491,14 +493,18 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.dropout2 = tf.keras.layers.Dropout(dropout_rate)
         self.dropout3 = tf.keras.layers.Dropout(dropout_rate)
     
-    def call(self, x, enc_output, training, look_ahead_mask=None, padding_mask=None):
+    def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
         # Masked self-attention: decoder attends to previous positions
-        attn1 = self.self_attention([x, x], mask=look_ahead_mask, training=training)
+        # Use causal masking (look-ahead) automatically
+        dec_mask_list = [dec_padding_mask, dec_padding_mask] if dec_padding_mask is not None else None
+        attn1 = self.self_attention([x, x], mask=dec_mask_list, use_causal_mask=True, training=training)
         attn1 = self.dropout1(attn1, training=training)
         out1 = self.layernorm1(x + attn1)
         
         # Cross-attention: decoder attends to encoder (same as LSTM attention)
-        attn2 = self.cross_attention([out1, enc_output], mask=padding_mask, training=training)
+        # Query from decoder, value/key from encoder
+        cross_mask_list = [dec_padding_mask, enc_padding_mask] if enc_padding_mask is not None else None
+        attn2 = self.cross_attention([out1, enc_output], mask=cross_mask_list, training=training)
         attn2 = self.dropout2(attn2, training=training)
         out2 = self.layernorm2(out1 + attn2)
         
@@ -582,7 +588,7 @@ class Decoder(tf.keras.layers.Layer):
         
         self.dropout = tf.keras.layers.Dropout(dropout_rate)
     
-    def call(self, x, enc_output, training, look_ahead_mask=None, padding_mask=None):
+    def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
         # Embedding + positional encoding
         x = self.embedding(x)
         x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
@@ -591,30 +597,9 @@ class Decoder(tf.keras.layers.Layer):
         
         # Pass through decoder layers
         for dec_layer in self.dec_layers:
-            x = dec_layer(x, enc_output, training, look_ahead_mask, padding_mask)
+            x = dec_layer(x, enc_output, training, dec_padding_mask, enc_padding_mask)
         
         return x
-
-
-def create_look_ahead_mask(batch_size, size):
-    """
-    Create mask to prevent attention to future positions.
-    
-    Args:
-        batch_size: Batch size
-        size: Sequence length
-    
-    Returns:
-        Look-ahead mask of shape (batch, size, size) with dtype bool
-    """
-    # Create (size, size) mask where upper triangle is True
-    mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
-    mask = tf.cast(mask, tf.bool)
-    # Add batch dimension: (1, size, size) -> broadcasts to (batch, size, size)
-    mask = tf.expand_dims(mask, 0)
-    # Tile for batch dimension
-    mask = tf.tile(mask, [batch_size, 1, 1])
-    return mask
 
 
 def create_padding_mask(seq):
@@ -625,14 +610,12 @@ def create_padding_mask(seq):
         seq: Input sequence of shape (batch, seq_len)
     
     Returns:
-        Padding mask of shape (batch, 1, seq_len) with dtype bool
-        This broadcasts to (batch, query_len, seq_len) in attention
+        Padding mask of shape (batch, seq_len) with dtype bool.
+        For use with layers.Attention as [query_mask, value_mask].
     """
-    # Mark padding positions (value == 0) as True
+    # Mark padding positions (value == 0) as True (masked out)
     mask = tf.cast(tf.math.equal(seq, 0), tf.bool)
-    # Add dimension for query positions: (batch, 1, seq_len)
-    # This broadcasts to (batch, query_len, key_len) in attention
-    return mask[:, tf.newaxis, :]
+    return mask
 
 
 class Transformer(Model):
@@ -665,22 +648,16 @@ class Transformer(Model):
     def call(self, inputs, training=False):
         encoder_input, decoder_input = inputs
         
-        batch_size = tf.shape(encoder_input)[0]
-        
-        # Create masks
+        # Create padding masks (shape: batch, seq_len)
         enc_padding_mask = create_padding_mask(encoder_input)
-        dec_padding_mask = create_padding_mask(encoder_input)
-        
-        look_ahead_mask = create_look_ahead_mask(batch_size, tf.shape(decoder_input)[1])
-        dec_target_padding_mask = create_padding_mask(decoder_input)
-        combined_mask = tf.logical_or(dec_target_padding_mask, look_ahead_mask)
+        dec_padding_mask = create_padding_mask(decoder_input)
         
         # Encoder
         enc_output = self.encoder(encoder_input, training, enc_padding_mask)
         
-        # Decoder
+        # Decoder (uses causal masking internally via use_causal_mask=True)
         dec_output = self.decoder(decoder_input, enc_output, training, 
-                                 combined_mask, dec_padding_mask)
+                                 dec_padding_mask, enc_padding_mask)
         
         # Final linear layer
         output = self.final_layer(dec_output)
@@ -745,8 +722,11 @@ def translate_transformer(input_text, model, tokenizer, max_encoder_len, max_dec
         padding='max_length',
         truncation=True,
         max_length=max_encoder_len,
-        return_tensors='tf'
+        return_tensors='np'
     )['input_ids']
+    
+    # Convert to TensorFlow tensor
+    encoder_input = tf.constant(encoder_input, dtype=tf.int64)
     
     # Initialize decoder input with PAD token (BOS)
     decoder_input = tf.constant([[tokenizer.pad_token_id]], dtype=tf.int32)
@@ -770,3 +750,22 @@ def translate_transformer(input_text, model, tokenizer, max_encoder_len, max_dec
     output_text = tokenizer.decode(decoder_input[0], skip_special_tokens=True)
     
     return output_text
+
+
+def build_inference_models_transformer(model, latent_dim):
+    """
+    Dummy function for BLEUCallback compatibility.
+    
+    Transformers don't need separate inference models because:
+    - Same model works for both training and inference
+    - Causal masking handles autoregressive generation
+    - No hidden states to maintain between steps
+    
+    Args:
+        model: Trained transformer model (unused)
+        latent_dim: Latent dimension (unused)
+    
+    Returns:
+        Tuple of (None, None) for encoder_model, decoder_model
+    """
+    return None, None
