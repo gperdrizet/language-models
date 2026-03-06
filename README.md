@@ -6,11 +6,12 @@ Models are avalible on Hugging Face:
 - [gperdrizet/english-french-LSTM](https://huggingface.co/gperdrizet/english-french-LSTM)
 - [gperdrizet/english-french-LSTM-attention](https://huggingface.co/gperdrizet/english-french-LSTM-attention)
 
-The project contains three Jupyter notebooks that progressively introduce neural machine translation concepts:
+The project contains four Jupyter notebooks that progressively introduce neural machine translation concepts:
 
-1. **01-encoder-decoder-NMT-LSTM.ipynb** - Bidirectional LSTM encoder-decoder baseline
+1. **01-encoder-decoder-LSTM.ipynb** - Bidirectional LSTM encoder-decoder baseline
 2. **02-encoder-decoder-LSTM-attention.ipynb** - Adding Luong attention mechanism
-3. **03-fine-tuning-activity.ipynb** - Transfer learning activity (English-German fine-tuning)
+3. **03-encoder-decoder-transformer.ipynb** - Transformer architecture with self-attention
+4. **04-fine-tuning-activity.ipynb** - Transfer learning activity (English-German fine-tuning)
 
 ## Getting started
 
@@ -45,8 +46,8 @@ Once in the devcontainer:
 
 ### Training
 
-- **Notebook 01 & 02:** Train from scratch (~5 hours on GPU for full 15 epochs)
-- **Notebook 03:** Fine-tune pre-trained model (~1-2 hours for 5 epochs)
+- **Notebooks 01, 02, & 03:** Train from scratch (~5 hours on GPU for full training)
+- **Notebook 04:** Fine-tune pre-trained model (~1-2 hours for 5 epochs)
 
 ### Visualize training
 
@@ -71,7 +72,7 @@ Use the TensorBoard VS Code extension to visualize training metrics:
 
 ## Model upload
 
-After training, upload models to Hugging Face Hub.
+If you want to upload your own models to Hugging Face after training, do the following:
 
 ### Prerequisites
 
@@ -79,7 +80,7 @@ After training, upload models to Hugging Face Hub.
    - `YOUR_USERNAME/english-french-LSTM`
    - `YOUR_USERNAME/english-french-LSTM-attention`
 
-2. Add your Hugging Face access token to `.env`:
+2. Add your Hugging Face access token to `.env` file:
    ```bash
    HF_TOKEN=your_token_here
    ```
@@ -108,4 +109,26 @@ See [utils/README.md](utils/README.md) for detailed instructions.
 - Filtered to <=20 tokens per sentence
 - 10% validation split
 
+## References
+
+**Attention mechanism:**
+
+> Bahdanau, D., Cho, K., & Bengio, Y. (2015). **Neural machine translation by jointly learning to align and translate.** *Proceedings of the 3rd International Conference on Learning Representations (ICLR).* https://arxiv.org/abs/1409.0473
+
+**Encoder-decoder architecture:**
+
+> Cho, K., van Merrienboer, B., Gulcehre, C., Bahdanau, D., Bougares, F., Schwenk, H., & Bengio, Y. (2014). **Learning phrase representations using RNN encoder-decoder for statistical machine translation.** *Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP).* https://arxiv.org/abs/1406.1078
+
+> Sutskever, I., Vinyals, O., & Le, Q. V. (2014). **Sequence to sequence learning with neural networks.** *Advances in Neural Information Processing Systems, 27.* https://arxiv.org/abs/1409.3215
+
+**OPUS-100 dataset:**
+
 > Zhang, B., Williams, P., Titov, I., & Sennrich, R. (2020). **Improving massively multilingual neural machine translation and zero-shot translation.** *Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL).* https://arxiv.org/abs/2004.11867
+
+**Transformer architecture:**
+
+> Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). **Attention is all you need.** *Advances in Neural Information Processing Systems, 30.* https://arxiv.org/abs/1706.03762
+
+**Transfer learning for neural machine translation:**
+
+> Zoph, B., Yuret, D., May, J., & Knight, K. (2016). **Transfer learning for low-resource neural machine translation.** *Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing (EMNLP).* https://arxiv.org/abs/1604.02201
