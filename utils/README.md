@@ -25,14 +25,15 @@ Converts training checkpoints to SavedModel format and uploads to Hugging Face H
      ```
 
 2. **Trained models:**
-   - Train models using notebooks 01 and/or 02
+   - Train models using notebooks 01, 02, and/or 03
    - Checkpoints are automatically saved during training to:
-     - `models/checkpoints/lstm/model_epoch_XX_val_loss_Y.YYYY.h5`
-     - `models/checkpoints/lstm-attention/model_epoch_XX_val_loss_Y.YYYY.h5`
+     - `models/lstm/checkpoints/model_epoch_XX_bleu_Y.YY.h5`
+     - `models/lstm-attention/checkpoints/model_epoch_XX_bleu_Y.YY.h5`
+     - `models/transformer/checkpoints/model_epoch_XX_bleu_Y.YY.h5`
 
 ### Usage
 
-Upload both models:
+Upload all models:
 ```bash
 python utils/upload_models_to_hub.py
 ```
@@ -45,6 +46,11 @@ python utils/upload_models_to_hub.py --model lstm
 Upload only the attention model:
 ```bash
 python utils/upload_models_to_hub.py --model attention
+```
+
+Upload only the transformer model:
+```bash
+python utils/upload_models_to_hub.py --model transformer
 ```
 
 Force re-upload even if files exist:
@@ -71,6 +77,7 @@ python utils/upload_models_to_hub.py --force
 Models will be uploaded to:
 - LSTM: `gperdrizet/english-french-LSTM`
 - Attention: `gperdrizet/english-french-LSTM-attention`
+- Transformer: `gperdrizet/english-french-transformer`
 
 View online at `https://huggingface.co/<repo_id>`
 

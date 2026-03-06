@@ -10,7 +10,7 @@ Hugging Face Hub. It:
 5. Generates model card and uploads
 
 Usage:
-    python utils/upload_models_to_hub.py [--model lstm|attention|both]
+    python utils/upload_models_to_hub.py [--model lstm|attention|transformer|all]
 
 Requirements:
     - HF_TOKEN environment variable set (or in .env file)
@@ -53,6 +53,15 @@ MODELS = {
         'description': 'LSTM encoder-decoder with Luong attention for English-French translation',
         'architecture': 'Bidirectional LSTM encoder + LSTM decoder + Luong attention',
         'model_type': 'attention',
+    },
+    'transformer': {
+        'repo_id': 'gperdrizet/english-french-transformer',
+        'model_dir': 'models/english-french-transformer',
+        'checkpoint_dir': 'models/transformer/checkpoints',
+        'metrics_dir': 'models/transformer',  # Where training_metrics.json is stored
+        'description': 'Transformer encoder-decoder for English-French translation',
+        'architecture': 'Transformer encoder-decoder with self-attention',
+        'model_type': 'transformer',
     }
 }
 
@@ -61,7 +70,11 @@ DEFAULT_CONFIG = {
     'vocab_size': 59514,  # MarianTokenizer vocab size
     'max_encoder_len': 22,
     'max_decoder_len': 24,
-    'latent_dim': 256,
+    'latent_dim': 256,  # For LSTM models
+    'd_model': 256,  # For transformer
+    'n_layers': 4,  # For transformer
+    'd_ff': 512,  # For transformer
+    'dropout_rate': 0.1,  # For transformer
     'num_samples': 100000,
     'tokenizer': 'Helsinki-NLP/opus-mt-en-fr'
 }
@@ -174,8 +187,10 @@ def build_models_from_checkpoint(checkpoint_path, model_type, model_dir):
     from src import (
         build_bidirectional_model,
         build_attention_model,
+        build_transformer_model,
         build_inference_models_lstm,
-        build_inference_models_attention
+        build_inference_models_attention,
+        build_inference_models_transformer
     )
     from transformers import MarianTokenizer
     
@@ -203,12 +218,22 @@ def build_models_from_checkpoint(checkpoint_path, model_type, model_dir):
             config['max_decoder_len'],
             latent_dim=config['latent_dim']
         )
-    else:  # attention
+    elif model_type == 'attention':
         training_model = build_attention_model(
             config['vocab_size'],
             config['max_encoder_len'],
             config['max_decoder_len'],
             latent_dim=config['latent_dim']
+        )
+    else:  # transformer
+        training_model = build_transformer_model(
+            config['vocab_size'],
+            config['max_encoder_len'],
+            config['max_decoder_len'],
+            d_model=config['d_model'],
+            n_layers=config['n_layers'],
+            d_ff=config['d_ff'],
+            dropout_rate=config['dropout_rate']
         )
     
     # Load checkpoint weights
@@ -222,11 +247,16 @@ def build_models_from_checkpoint(checkpoint_path, model_type, model_dir):
             training_model,
             latent_dim=config['latent_dim']
         )
-    else:  # attention
+    elif model_type == 'attention':
         encoder_model, decoder_model = build_inference_models_attention(
             training_model,
             config['max_encoder_len'],
             latent_dim=config['latent_dim']
+        )
+    else:  # transformer
+        encoder_model, decoder_model = build_inference_models_transformer(
+            training_model,
+            latent_dim=config['d_model']
         )
     
     # Create model directory
@@ -414,9 +444,9 @@ def main():
     )
     parser.add_argument(
         '--model',
-        choices=['lstm', 'attention', 'both'],
-        default='both',
-        help='Which model to upload (default: both)'
+        choices=['lstm', 'attention', 'transformer', 'all'],
+        default='all',
+        help='Which model to upload (default: all)'
     )
     parser.add_argument(
         '--force',
@@ -439,32 +469,42 @@ def main():
     print("=" * 60)
     
     # Upload requested models
-    if args.model in ['lstm', 'both']:
+    if args.model in ['lstm', 'all']:
         success_lstm = upload_model('lstm', token, args.force)
     else:
         success_lstm = True
     
-    if args.model in ['attention', 'both']:
+    if args.model in ['attention', 'all']:
         success_attention = upload_model('attention', token, args.force)
     else:
         success_attention = True
+    
+    if args.model in ['transformer', 'all']:
+        success_transformer = upload_model('transformer', token, args.force)
+    else:
+        success_transformer = True
     
     # Summary
     print("\n" + "=" * 60)
     print("Upload Summary")
     print("=" * 60)
     
-    if args.model in ['lstm', 'both']:
+    if args.model in ['lstm', 'all']:
         status = "Success" if success_lstm else "Failed"
         print(f"LSTM model: {status}")
     
-    if args.model in ['attention', 'both']:
+    if args.model in ['attention', 'all']:
         status = "Success" if success_attention else "Failed"
         print(f"Attention model: {status}")
     
-    if (args.model == 'both' and success_lstm and success_attention) or \
+    if args.model in ['transformer', 'all']:
+        status = "Success" if success_transformer else "Failed"
+        print(f"Transformer model: {status}")
+    
+    if (args.model == 'all' and success_lstm and success_attention and success_transformer) or \
        (args.model == 'lstm' and success_lstm) or \
-       (args.model == 'attention' and success_attention):
+       (args.model == 'attention' and success_attention) or \
+       (args.model == 'transformer' and success_transformer):
         print("\nAll uploads completed successfully!")
     else:
         print("\nSome uploads failed. Check error messages above.")

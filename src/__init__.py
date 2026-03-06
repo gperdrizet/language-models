@@ -8,6 +8,7 @@ from .models import (
     translate_lstm,
     translate_attention,
     build_transformer_model,
+    build_inference_models_transformer,
     translate_transformer
 )
 from .callbacks import BLEUCallback
@@ -20,6 +21,7 @@ __all__ = [
     'translate_lstm',
     'translate_attention',
     'build_transformer_model',
+    'build_inference_models_transformer',
     'translate_transformer',
     'BLEUCallback'
 ]

@@ -2,16 +2,22 @@
 
 This project introduces students to transformer models by building concepts sequentially, starting with RNN-based encoder-decoder architectures. By understanding how attention mechanisms solve the limitations of LSTMs, students gain the foundation needed to understand modern transformer architectures.
 
-Models are avalible on Hugging Face:
-- [gperdrizet/english-french-LSTM](https://huggingface.co/gperdrizet/english-french-LSTM)
-- [gperdrizet/english-french-LSTM-attention](https://huggingface.co/gperdrizet/english-french-LSTM-attention)
-
 The project contains four Jupyter notebooks that progressively introduce neural machine translation concepts:
 
-1. **01-encoder-decoder-LSTM.ipynb** - Bidirectional LSTM encoder-decoder baseline
-2. **02-encoder-decoder-LSTM-attention.ipynb** - Adding Luong attention mechanism
-3. **03-encoder-decoder-transformer.ipynb** - Transformer architecture with self-attention
-4. **04-fine-tuning-activity.ipynb** - Transfer learning activity (English-German fine-tuning)
+| Notebook | Description |
+|----------|-------------|
+| [01-encoder-decoder-LSTM.ipynb](notebooks/01-encoder-decoder-LSTM.ipynb) | Bidirectional LSTM encoder-decoder baseline |
+| [02-encoder-decoder-LSTM-attention.ipynb](notebooks/02-encoder-decoder-LSTM-attention.ipynb) | Adding Luong attention mechanism |
+| [03-encoder-decoder-transformer.ipynb](notebooks/03-encoder-decoder-transformer.ipynb) | Transformer architecture with self-attention |
+| [04-fine-tuning-activity.ipynb](notebooks/04-fine-tuning-activity.ipynb) | Transfer learning activity (English-German fine-tuning) |
+
+The resulting trained models are available on Hugging Face:
+
+| Model | Description |
+|-------|-------------|
+| [gperdrizet/english-french-LSTM](https://huggingface.co/gperdrizet/english-french-LSTM) | Recurrent only encoder-decoder |
+| [gperdrizet/english-french-LSTM-attention](https://huggingface.co/gperdrizet/english-french-LSTM-attention) | Recurrent encoder-decoder with attention |
+| [gperdrizet/english-french-transformer](https://huggingface.co/gperdrizet/english-french-transformer) | Transformer based encoder-decoder |
 
 ## Getting started
 
