@@ -402,7 +402,9 @@ class PositionalEncoding(tf.keras.layers.Layer):
     
     def __init__(self, max_len, d_model):
         super().__init__()
-        self.pos_encoding = get_positional_encoding(max_len, d_model)
+        # Convert to TensorFlow constant so it can be sliced with TF tensors
+        pos_encoding_np = get_positional_encoding(max_len, d_model)
+        self.pos_encoding = tf.constant(pos_encoding_np, dtype=tf.float32)
     
     def call(self, x):
         seq_len = tf.shape(x)[1]
@@ -594,17 +596,24 @@ class Decoder(tf.keras.layers.Layer):
         return x
 
 
-def create_look_ahead_mask(size):
+def create_look_ahead_mask(batch_size, size):
     """
     Create mask to prevent attention to future positions.
     
     Args:
+        batch_size: Batch size
         size: Sequence length
     
     Returns:
-        Look-ahead mask of shape (size, size)
+        Look-ahead mask of shape (batch, size, size) with dtype bool
     """
+    # Create (size, size) mask where upper triangle is True
     mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
+    mask = tf.cast(mask, tf.bool)
+    # Add batch dimension: (1, size, size) -> broadcasts to (batch, size, size)
+    mask = tf.expand_dims(mask, 0)
+    # Tile for batch dimension
+    mask = tf.tile(mask, [batch_size, 1, 1])
     return mask
 
 
@@ -613,13 +622,17 @@ def create_padding_mask(seq):
     Create mask for padding tokens (zeros).
     
     Args:
-        seq: Input sequence
+        seq: Input sequence of shape (batch, seq_len)
     
     Returns:
-        Padding mask of shape (batch, 1, 1, seq_len)
+        Padding mask of shape (batch, 1, seq_len) with dtype bool
+        This broadcasts to (batch, query_len, seq_len) in attention
     """
-    seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
-    return seq[:, tf.newaxis, tf.newaxis, :]
+    # Mark padding positions (value == 0) as True
+    mask = tf.cast(tf.math.equal(seq, 0), tf.bool)
+    # Add dimension for query positions: (batch, 1, seq_len)
+    # This broadcasts to (batch, query_len, key_len) in attention
+    return mask[:, tf.newaxis, :]
 
 
 class Transformer(Model):
@@ -652,13 +665,15 @@ class Transformer(Model):
     def call(self, inputs, training=False):
         encoder_input, decoder_input = inputs
         
+        batch_size = tf.shape(encoder_input)[0]
+        
         # Create masks
         enc_padding_mask = create_padding_mask(encoder_input)
         dec_padding_mask = create_padding_mask(encoder_input)
         
-        look_ahead_mask = create_look_ahead_mask(tf.shape(decoder_input)[1])
+        look_ahead_mask = create_look_ahead_mask(batch_size, tf.shape(decoder_input)[1])
         dec_target_padding_mask = create_padding_mask(decoder_input)
-        combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
+        combined_mask = tf.logical_or(dec_target_padding_mask, look_ahead_mask)
         
         # Encoder
         enc_output = self.encoder(encoder_input, training, enc_padding_mask)
