@@ -666,7 +666,7 @@ class Transformer(Model):
 
 
 def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, 
-                           d_model=256, n_layers=4, d_ff=512, dropout_rate=0.1):
+                           d_model=256, n_layers=4, d_ff=1024, dropout_rate=0.1, learning_rate=0.001):
     """
     Build and compile transformer model for neural machine translation.
     
@@ -676,8 +676,9 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         max_decoder_len: Maximum decoder sequence length
         d_model: Model dimension (default: 256)
         n_layers: Number of encoder/decoder layers (default: 4)
-        d_ff: Feed-forward dimension (default: 512)
+        d_ff: Feed-forward dimension (default: 1024, typically 4 × d_model)
         dropout_rate: Dropout rate (default: 0.1)
+        learning_rate: Learning rate for Adam optimizer (default: 0.001)
     
     Returns:
         Compiled transformer model
@@ -693,8 +694,11 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         dropout_rate=dropout_rate
     )
     
+    # Use specified learning rate
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    
     model.compile(
-        optimizer='adam',
+        optimizer=optimizer,
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
         metrics=['accuracy']
     )
