@@ -3,7 +3,7 @@ Upload trained NMT models to Hugging Face Hub.
 
 This script converts training checkpoints to SavedModel format and uploads them to 
 Hugging Face Hub. It:
-1. Finds the latest checkpoint (highest epoch number)
+1. Finds the best checkpoint (highest BLEU score) from training_metrics.json
 2. Rebuilds model architecture and loads checkpoint weights
 3. Builds inference models (encoder/decoder)
 4. Saves all as SavedModel format
@@ -14,7 +14,8 @@ Usage:
 
 Requirements:
     - HF_TOKEN environment variable set (or in .env file)
-    - Training checkpoints in models/checkpoints/ directory
+    - Training checkpoints in models/<MODEL>/checkpoints/ directory
+    - training_metrics.json in models/<MODEL>/ directory
 """
 
 import os
@@ -38,7 +39,8 @@ MODELS = {
     'lstm': {
         'repo_id': 'gperdrizet/english-french-LSTM',
         'model_dir': 'models/english-french-LSTM',
-        'checkpoint_dir': 'models/checkpoints/lstm',
+        'checkpoint_dir': 'models/lstm/checkpoints',
+        'metrics_dir': 'models/lstm',  # Where training_metrics.json is stored
         'description': 'Bidirectional LSTM encoder-decoder for English-French translation',
         'architecture': 'Bidirectional LSTM encoder + LSTM decoder',
         'model_type': 'lstm',
@@ -46,7 +48,8 @@ MODELS = {
     'attention': {
         'repo_id': 'gperdrizet/english-french-LSTM-attention',
         'model_dir': 'models/english-french-LSTM-attention',
-        'checkpoint_dir': 'models/checkpoints/lstm-attention',
+        'checkpoint_dir': 'models/lstm-attention/checkpoints',
+        'metrics_dir': 'models/lstm-attention',  # Where training_metrics.json is stored
         'description': 'LSTM encoder-decoder with Luong attention for English-French translation',
         'architecture': 'Bidirectional LSTM encoder + LSTM decoder + Luong attention',
         'model_type': 'attention',
@@ -64,36 +67,73 @@ DEFAULT_CONFIG = {
 }
 
 
-def find_latest_checkpoint(checkpoint_dir):
-    """Find the checkpoint with the highest epoch number."""
+def find_best_checkpoint(model_dir, checkpoint_dir):
+    """Find the checkpoint with the best BLEU score from training_metrics.json.
     
+    Args:
+        model_dir: Model directory containing training_metrics.json
+        checkpoint_dir: Directory containing checkpoint files
+    
+    Returns:
+        tuple: (checkpoint_path, epoch, bleu_score) or (None, None, None)
+    """
+    # First, try to load from training_metrics.json
+    metrics_path = Path(model_dir) / 'training_metrics.json'
+    
+    if metrics_path.exists():
+        try:
+            with open(metrics_path) as f:
+                metrics = json.load(f)
+            
+            checkpoint_file = metrics['checkpoint_file']
+            best_epoch = metrics['best_epoch']
+            best_bleu = metrics['best_bleu']
+            
+            checkpoint_path = Path(checkpoint_dir) / checkpoint_file
+            
+            if checkpoint_path.exists():
+                return checkpoint_path, best_epoch, best_bleu
+            else:
+                print(f"Warning: Checkpoint file {checkpoint_file} not found at expected location")
+        except (KeyError, json.JSONDecodeError) as e:
+            print(f"Warning: Could not read training_metrics.json: {e}")
+    
+    # Fallback: find the latest checkpoint by epoch number
+    print("Falling back to finding latest checkpoint by epoch number...")
     checkpoint_path = Path(checkpoint_dir)
     
     if not checkpoint_path.exists():
-        return None
+        return None, None, None
     
     # Find all .h5 checkpoint files
     checkpoints = list(checkpoint_path.glob('model_epoch_*.h5'))
     
     if not checkpoints:
-        return None
+        return None, None, None
     
     # Extract epoch number from filenames and find the maximum
-    # Pattern: model_epoch_XX_val_loss_Y.YYYY.h5
-    epoch_pattern = re.compile(r'model_epoch_(\d+)_val_loss_[\d.]+\.h5')
+    # Pattern: model_epoch_XX_best_bleu_YY.YY.h5 or model_epoch_XX_val_loss_Y.YYYY.h5
+    epoch_pattern = re.compile(r'model_epoch_(\d+)_')
+    bleu_pattern = re.compile(r'best_bleu_([\d.]+)\.h5')
     
     best_checkpoint = None
     max_epoch = -1
+    best_bleu = None
     
     for checkpoint in checkpoints:
-        match = epoch_pattern.match(checkpoint.name)
+        match = epoch_pattern.search(checkpoint.name)
         if match:
             epoch = int(match.group(1))
             if epoch > max_epoch:
                 max_epoch = epoch
                 best_checkpoint = checkpoint
+                
+                # Try to extract BLEU score from filename
+                bleu_match = bleu_pattern.search(checkpoint.name)
+                if bleu_match:
+                    best_bleu = float(bleu_match.group(1))
     
-    return best_checkpoint, max_epoch if best_checkpoint else (None, None)
+    return best_checkpoint, max_epoch if best_checkpoint else None, best_bleu
 
 
 def check_savedmodel_exists(model_dir):
@@ -146,7 +186,9 @@ def build_models_from_checkpoint(checkpoint_path, model_type, model_dir):
     # Use default config
     config = DEFAULT_CONFIG.copy()
     config['architecture'] = MODELS[model_type]['architecture']
-    config['best_epoch'] = checkpoint_path[1]  # epoch number from find_latest_checkpoint
+    config['best_epoch'] = checkpoint_path[1]  # epoch number from find_best_checkpoint
+    if checkpoint_path[2] is not None:
+        config['best_bleu'] = checkpoint_path[2]  # BLEU score
     
     # Load tokenizer to save with models
     print("Loading tokenizer...")
@@ -221,7 +263,7 @@ def build_models_from_checkpoint(checkpoint_path, model_type, model_dir):
     encoder_size = get_dir_size(model_path / 'encoder_model')
     decoder_size = get_dir_size(model_path / 'decoder_model')
     
-    print(f"\n✓ Models saved successfully:")
+    print(f"\nModels saved successfully:")
     print(f"  - training_model/: {training_size:.2f} MB")
     print(f"  - encoder_model/: {encoder_size:.2f} MB")
     print(f"  - decoder_model/: {decoder_size:.2f} MB")
@@ -259,7 +301,7 @@ def upload_model(model_name, token, force=False):
     savedmodel_exists = check_savedmodel_exists(model_config['model_dir'])
     
     if savedmodel_exists and not force:
-        print(f"\n✓ SavedModel already exists in {model_config['model_dir']}")
+        print(f"\nSavedModel already exists in {model_config['model_dir']}")
         print("  Using existing models.")
         
         # Load config from existing file
@@ -275,20 +317,31 @@ def upload_model(model_name, token, force=False):
         print(f"Preparing {model_name} model for upload")
         print(f"{'='*60}")
         
-        # Find latest checkpoint
-        print(f"\nSearching for checkpoints in {model_config['checkpoint_dir']}...")
-        checkpoint_path, epoch = find_latest_checkpoint(model_config['checkpoint_dir'])
+        # Find best checkpoint (by BLEU score)
+        print(f"\nSearching for best checkpoint...")
+        print(f"  Metrics dir: {model_config['metrics_dir']}")
+        print(f"  Checkpoint dir: {model_config['checkpoint_dir']}")
+        
+        checkpoint_path, epoch, bleu_score = find_best_checkpoint(
+            model_config['metrics_dir'],
+            model_config['checkpoint_dir']
+        )
         
         if checkpoint_path is None:
             print(f"ERROR: No checkpoints found in {model_config['checkpoint_dir']}")
             print(f"Please train the model first (run notebook 01 or 02).")
             return False
         
-        print(f"✓ Found checkpoint: {checkpoint_path.name} (epoch {epoch})")
+        if bleu_score is not None:
+            print(f"Found best checkpoint: {checkpoint_path.name}")
+            print(f"  Epoch: {epoch}, BLEU score: {bleu_score:.2f}")
+        else:
+            print(f"Found checkpoint: {checkpoint_path.name} (epoch {epoch})")
+            print(f"  Note: BLEU score not available")
         
         # Build models from checkpoint
         config = build_models_from_checkpoint(
-            (checkpoint_path, epoch),
+            (checkpoint_path, epoch, bleu_score),
             model_config['model_type'],
             model_config['model_dir']
         )
@@ -345,13 +398,13 @@ def upload_model(model_name, token, force=False):
             repo_type='model'
         )
         
-        print(f"\n✓ Successfully uploaded {model_name} model!")
+        print(f"\nSuccessfully uploaded {model_name} model!")
         print(f"  View at: https://huggingface.co/{model_config['repo_id']}")
         
         return True
         
     except Exception as e:
-        print(f"\n✗ Error uploading model: {e}")
+        print(f"\nError uploading model: {e}")
         return False
 
 
@@ -402,19 +455,19 @@ def main():
     print("=" * 60)
     
     if args.model in ['lstm', 'both']:
-        status = "✓ Success" if success_lstm else "✗ Failed"
+        status = "Success" if success_lstm else "Failed"
         print(f"LSTM model: {status}")
     
     if args.model in ['attention', 'both']:
-        status = "✓ Success" if success_attention else "✗ Failed"
+        status = "Success" if success_attention else "Failed"
         print(f"Attention model: {status}")
     
     if (args.model == 'both' and success_lstm and success_attention) or \
        (args.model == 'lstm' and success_lstm) or \
        (args.model == 'attention' and success_attention):
-        print("\n✓ All uploads completed successfully!")
+        print("\nAll uploads completed successfully!")
     else:
-        print("\n✗ Some uploads failed. Check error messages above.")
+        print("\nSome uploads failed. Check error messages above.")
 
 
 if __name__ == '__main__':
