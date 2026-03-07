@@ -548,7 +548,7 @@ class Encoder(tf.keras.layers.Layer):
     def call(self, x, training, mask=None):
         # Embedding + positional encoding
         x = self.embedding(x)
-        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+        # Note: Removed sqrt(d_model) scaling for training stability without warmup
         x = self.pos_encoding(x)
         x = self.dropout(x, training=training)
         
@@ -591,7 +591,7 @@ class Decoder(tf.keras.layers.Layer):
     def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
         # Embedding + positional encoding
         x = self.embedding(x)
-        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+        # Note: Removed sqrt(d_model) scaling for training stability without warmup
         x = self.pos_encoding(x)
         x = self.dropout(x, training=training)
         
