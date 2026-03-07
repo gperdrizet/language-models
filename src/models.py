@@ -365,30 +365,40 @@ def translate_attention(input_text, encoder_model, decoder_model, tokenizer, max
 def get_positional_encoding(seq_len, d_model):
     """
     Generate positional encoding matrix using sine/cosine functions.
+    Uses TensorFlow operations for speed and GPU acceleration.
     
     Args:
         seq_len: Maximum sequence length
         d_model: Model dimension
     
     Returns:
-        Positional encoding matrix of shape (seq_len, d_model)
+        Positional encoding tensor of shape (seq_len, d_model)
     """
-    # Create position indices
-    positions = np.arange(seq_len)[:, np.newaxis]
+    # Create position indices [0, 1, 2, ..., seq_len-1]
+    positions = tf.cast(tf.range(seq_len), tf.float32)[:, tf.newaxis]
     
-    # Create dimension indices  
-    dims = np.arange(d_model)[np.newaxis, :]
+    # Create dimension indices [0, 1, 2, ..., d_model-1]
+    dims = tf.cast(tf.range(d_model), tf.float32)[tf.newaxis, :]
     
-    # Compute angle rates
-    angle_rates = 1 / np.power(10000, (2 * (dims // 2)) / d_model)
+    # Compute angle rates: 1 / 10000^(2i/d_model)
+    angle_rates = 1 / tf.pow(10000.0, (2 * (dims // 2)) / d_model)
     angle_rads = positions * angle_rates
     
     # Apply sin to even indices, cos to odd indices
-    pos_encoding = np.zeros((seq_len, d_model))
-    pos_encoding[:, 0::2] = np.sin(angle_rads[:, 0::2])
-    pos_encoding[:, 1::2] = np.cos(angle_rads[:, 1::2])
+    # Use tf.where to select sin for even, cos for odd
+    indices = tf.cast(tf.range(d_model), tf.int32)
+    is_even = tf.equal(indices % 2, 0)
     
-    return pos_encoding.astype(np.float32)
+    # Broadcast is_even to match angle_rads shape
+    is_even = tf.broadcast_to(is_even, tf.shape(angle_rads))
+    
+    pos_encoding = tf.where(
+        is_even,
+        tf.sin(angle_rads),
+        tf.cos(angle_rads)
+    )
+    
+    return pos_encoding
 
 
 class PositionalEncoding(tf.keras.layers.Layer):
@@ -402,9 +412,8 @@ class PositionalEncoding(tf.keras.layers.Layer):
     
     def __init__(self, max_len, d_model):
         super().__init__()
-        # Convert to TensorFlow constant so it can be sliced with TF tensors
-        pos_encoding_np = get_positional_encoding(max_len, d_model)
-        self.pos_encoding = tf.constant(pos_encoding_np, dtype=tf.float32)
+        # Generate positional encoding using TensorFlow operations
+        self.pos_encoding = tf.constant(get_positional_encoding(max_len, d_model), dtype=tf.float32)
     
     def call(self, x):
         seq_len = tf.shape(x)[1]
