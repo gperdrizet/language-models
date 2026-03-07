@@ -557,7 +557,7 @@ class Encoder(tf.keras.layers.Layer):
     def call(self, x, training, mask=None):
         # Embedding + positional encoding
         x = self.embedding(x)
-        # Note: Removed sqrt(d_model) scaling for training stability without warmup
+        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))  # Scale embeddings
         x = self.pos_encoding(x)
         x = self.dropout(x, training=training)
         
@@ -600,7 +600,7 @@ class Decoder(tf.keras.layers.Layer):
     def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
         # Embedding + positional encoding
         x = self.embedding(x)
-        # Note: Removed sqrt(d_model) scaling for training stability without warmup
+        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))  # Scale embeddings
         x = self.pos_encoding(x)
         x = self.dropout(x, training=training)
         
@@ -675,7 +675,8 @@ class Transformer(Model):
 
 
 def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, 
-                           d_model=256, n_layers=4, d_ff=1024, dropout_rate=0.1, learning_rate=0.001):
+                           d_model=256, n_layers=4, d_ff=1024, dropout_rate=0.1, 
+                           warmup_steps=4000, use_warmup=False):
     """
     Build and compile transformer model for neural machine translation.
     
@@ -687,11 +688,14 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         n_layers: Number of encoder/decoder layers (default: 4)
         d_ff: Feed-forward dimension (default: 1024, typically 4 × d_model)
         dropout_rate: Dropout rate (default: 0.1)
-        learning_rate: Learning rate for Adam optimizer (default: 0.001)
+        warmup_steps: Warmup steps for learning rate schedule (default: 4000)
+        use_warmup: If True, use TransformerSchedule with warmup; if False, use fixed LR (default: False)
     
     Returns:
         Compiled transformer model
     """
+    from .schedules import TransformerSchedule
+    
     model = Transformer(
         n_layers=n_layers,
         d_model=d_model,
@@ -703,8 +707,15 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         dropout_rate=dropout_rate
     )
     
-    # Use specified learning rate
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    # Choose learning rate schedule
+    if use_warmup:
+        learning_rate = TransformerSchedule(d_model=d_model, warmup_steps=warmup_steps)
+        print(f'Using warmup schedule: d_model={d_model}, warmup_steps={warmup_steps}')
+    else:
+        learning_rate = 0.0003  # Fixed learning rate (no warmup, no scaling)
+        print(f'Using fixed learning rate: {learning_rate}')
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
     
     model.compile(
         optimizer=optimizer,

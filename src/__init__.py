@@ -12,6 +12,7 @@ from .models import (
     translate_transformer
 )
 from .callbacks import BLEUCallback
+from .schedules import TransformerSchedule
 
 __all__ = [
     'build_bidirectional_model',
@@ -23,5 +24,6 @@ __all__ = [
     'build_transformer_model',
     'build_inference_models_transformer',
     'translate_transformer',
-    'BLEUCallback'
+    'BLEUCallback',
+    'TransformerSchedule'
 ]
