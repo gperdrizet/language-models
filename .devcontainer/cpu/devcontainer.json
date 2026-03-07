@@ -8,10 +8,8 @@
 	"name": "Language models CPU",
 	"image": "gperdrizet/deeplearning-cpu",
     "runArgs": [
-		"--publish", "6006:6006",   // Map TensorBoard port for easy access
 		"--network=bridge"          // Explicitly use bridge network for internet access
 	],
-	"forwardPorts": [6006],         // Auto-forward TensorBoard port
 	"remoteUser": "vscode",         // Use the 'vscode' user provided by the base image
 	"containerEnv": {
 		"TF_CPP_MIN_LOG_LEVEL": "1" // Suppress TensorFlow INFO logs for cleaner output
