@@ -611,19 +611,20 @@ class Decoder(tf.keras.layers.Layer):
         return x
 
 
-def create_padding_mask(seq):
+def create_padding_mask(seq, pad_token_id=59513):
     """
-    Create mask for padding tokens (zeros).
+    Create mask for padding tokens.
     
     Args:
         seq: Input sequence of shape (batch, seq_len)
+        pad_token_id: ID of the padding token (default: 59513 for MarianTokenizer)
     
     Returns:
         Padding mask of shape (batch, seq_len) with dtype bool.
         For use with layers.Attention as [query_mask, value_mask].
     """
-    # Mark padding positions (value == 0) as True (masked out)
-    mask = tf.cast(tf.math.equal(seq, 0), tf.bool)
+    # Mark padding positions (value == pad_token_id) as True (masked out)
+    mask = tf.cast(tf.math.equal(seq, pad_token_id), tf.bool)
     return mask
 
 
@@ -640,11 +641,15 @@ class Transformer(Model):
         max_encoder_len: Maximum encoder sequence length
         max_decoder_len: Maximum decoder sequence length
         dropout_rate: Dropout rate
+        pad_token_id: ID of padding token (default: 59513 for MarianTokenizer)
     """
     
     def __init__(self, n_layers, d_model, d_ff, input_vocab_size, 
-                 target_vocab_size, max_encoder_len, max_decoder_len, dropout_rate=0.1):
+                 target_vocab_size, max_encoder_len, max_decoder_len, 
+                 dropout_rate=0.1, pad_token_id=59513):
         super().__init__()
+        
+        self.pad_token_id = pad_token_id
         
         self.encoder = Encoder(n_layers, d_model, d_ff, 
                               input_vocab_size, max_encoder_len, dropout_rate)
@@ -658,8 +663,9 @@ class Transformer(Model):
         encoder_input, decoder_input = inputs
         
         # Create padding masks (shape: batch, seq_len)
-        enc_padding_mask = create_padding_mask(encoder_input)
-        dec_padding_mask = create_padding_mask(decoder_input)
+        # Mask actual PAD tokens (59513), not EOS (0)
+        enc_padding_mask = create_padding_mask(encoder_input, self.pad_token_id)
+        dec_padding_mask = create_padding_mask(decoder_input, self.pad_token_id)
         
         # Encoder
         enc_output = self.encoder(encoder_input, training, enc_padding_mask)
@@ -676,7 +682,7 @@ class Transformer(Model):
 
 def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, 
                            d_model=256, n_layers=4, d_ff=1024, dropout_rate=0.1, 
-                           warmup_steps=4000, use_warmup=False):
+                           warmup_steps=4000, use_warmup=False, pad_token_id=59513):
     """
     Build and compile transformer model for neural machine translation.
     
@@ -690,6 +696,7 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         dropout_rate: Dropout rate (default: 0.1)
         warmup_steps: Warmup steps for learning rate schedule (default: 4000)
         use_warmup: If True, use TransformerSchedule with warmup; if False, use fixed LR (default: False)
+        pad_token_id: Padding token ID (default: 59513 for MarianTokenizer)
     
     Returns:
         Compiled transformer model
@@ -704,7 +711,8 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         target_vocab_size=num_tokens,
         max_encoder_len=max_encoder_len,
         max_decoder_len=max_decoder_len,
-        dropout_rate=dropout_rate
+        dropout_rate=dropout_rate,
+        pad_token_id=pad_token_id
     )
     
     # Choose learning rate schedule
