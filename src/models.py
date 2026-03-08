@@ -622,9 +622,12 @@ def create_padding_mask(seq, pad_token_id=59513):
     Returns:
         Padding mask of shape (batch, seq_len) with dtype bool.
         For use with layers.Attention as [query_mask, value_mask].
+        - True = keep position (not padding)
+        - False = mask out (is padding)
     """
-    # Mark padding positions (value == pad_token_id) as True (masked out)
-    mask = tf.cast(tf.math.equal(seq, pad_token_id), tf.bool)
+    # Mark non-padding positions as True (keep), padding positions as False (mask out)
+    # Keras Attention expects False for positions to mask out
+    mask = tf.cast(tf.math.not_equal(seq, pad_token_id), tf.bool)
     return mask
 
 
@@ -663,7 +666,7 @@ class Transformer(Model):
         encoder_input, decoder_input = inputs
         
         # Create padding masks (shape: batch, seq_len)
-        # Mask actual PAD tokens (59513), not EOS (0)
+        # True = keep position (not padding), False = mask out (is padding)
         enc_padding_mask = create_padding_mask(encoder_input, self.pad_token_id)
         dec_padding_mask = create_padding_mask(decoder_input, self.pad_token_id)
         
