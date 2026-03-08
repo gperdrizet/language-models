@@ -1,5 +1,6 @@
 datasets
 huggingface_hub
+ipywidgets
 pyarrow<15.0.0
 python-dotenv
 sacrebleu
