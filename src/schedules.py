@@ -5,49 +5,54 @@ import tensorflow as tf
 
 class TransformerSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     """
-    Learning rate schedule from 'Attention is All You Need' (Vaswani et al. 2017).
-    
-    Formula: lrate = d_model^(-0.5) * min(step^(-0.5), step * warmup_steps^(-1.5))
+    Learning rate schedule with linear warmup and exponential decay.
     
     This creates:
-    - Linear warmup for first warmup_steps (usually 4000)
-    - Inverse square root decay after warmup
+    - Linear warmup from initial_lr to peak_lr over warmup_steps
+    - Exponential decay after warmup: peak_lr * (decay_rate ^ steps_after_warmup)
     
     Args:
-        d_model: Model dimension (used to scale learning rate)
-        warmup_steps: Number of warmup steps (default: 4000)
+        initial_lr: Starting learning rate during warmup (default: 1e-6)
+        peak_lr: Maximum learning rate reached after warmup (default: 0.01)
+        warmup_steps: Number of steps for linear warmup (default: 1404)
+        decay_rate: Exponential decay rate per step after warmup (default: 0.99)
     
     Example:
-        With d_model=256 and warmup_steps=4000:
-        - Step 1: ~0.000004 (very small)
-        - Step 4000: ~0.0006 (peak)
-        - Step 16000: ~0.0003 (half of peak)
+        With initial_lr=1e-6, peak_lr=0.01, warmup_steps=1404, decay_rate=0.99:
+        - Step 1: 1e-6 (initial)
+        - Step 702 (halfway): ~0.005 (halfway to peak)
+        - Step 1404: 0.01 (peak)
+        - Step 1404 + N: 0.01 * (0.99^N) (exponential decay)
     """
     
-    def __init__(self, d_model, warmup_steps=4000):
+    def __init__(self, initial_lr=1e-6, peak_lr=0.01, warmup_steps=1404, decay_rate=0.99):
         super().__init__()
         
-        self.d_model = tf.cast(d_model, tf.float32)
+        self.initial_lr = tf.cast(initial_lr, tf.float32)
+        self.peak_lr = tf.cast(peak_lr, tf.float32)
         self.warmup_steps = tf.cast(warmup_steps, tf.float32)
+        self.decay_rate = tf.cast(decay_rate, tf.float32)
     
     def __call__(self, step):
         # Cast step to float32
         step = tf.cast(step, tf.float32)
         
-        # Avoid division by zero at step 0
-        step = tf.maximum(step, 1.0)
+        # Linear warmup phase
+        warmup_lr = self.initial_lr + (self.peak_lr - self.initial_lr) * (step / self.warmup_steps)
         
-        # Compute both terms
-        arg1 = tf.math.rsqrt(step)  # step^(-0.5)
-        arg2 = step * (self.warmup_steps ** -1.5)
+        # Exponential decay phase
+        steps_after_warmup = step - self.warmup_steps
+        decay_lr = self.peak_lr * tf.pow(self.decay_rate, steps_after_warmup)
         
-        # Learning rate formula
-        lr = tf.math.rsqrt(self.d_model) * tf.minimum(arg1, arg2)
+        # Use warmup before warmup_steps, decay after
+        lr = tf.where(step < self.warmup_steps, warmup_lr, decay_lr)
         
         return lr
     
     def get_config(self):
         return {
-            'd_model': int(self.d_model.numpy()),
-            'warmup_steps': int(self.warmup_steps.numpy())
+            'initial_lr': float(self.initial_lr.numpy()),
+            'peak_lr': float(self.peak_lr.numpy()),
+            'warmup_steps': int(self.warmup_steps.numpy()),
+            'decay_rate': float(self.decay_rate.numpy())
         }

@@ -685,7 +685,8 @@ class Transformer(Model):
 
 def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, 
                            d_model=256, n_layers=4, d_ff=1024, dropout_rate=0.1, 
-                           warmup_steps=4000, use_warmup=False, pad_token_id=59513):
+                           warmup_steps=4000, initial_lr=1e-6, peak_lr=0.01, 
+                           decay_rate=0.99, use_warmup=False, pad_token_id=59513):
     """
     Build and compile transformer model for neural machine translation.
     
@@ -698,6 +699,9 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         d_ff: Feed-forward dimension (default: 1024, typically 4 × d_model)
         dropout_rate: Dropout rate (default: 0.1)
         warmup_steps: Warmup steps for learning rate schedule (default: 4000)
+        initial_lr: Initial learning rate during warmup (default: 1e-6)
+        peak_lr: Peak learning rate after warmup (default: 0.01)
+        decay_rate: Exponential decay rate per step after warmup (default: 0.99)
         use_warmup: If True, use TransformerSchedule with warmup; if False, use fixed LR (default: False)
         pad_token_id: Padding token ID (default: 59513 for MarianTokenizer)
     
@@ -720,8 +724,13 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
     
     # Choose learning rate schedule
     if use_warmup:
-        learning_rate = TransformerSchedule(d_model=d_model, warmup_steps=warmup_steps)
-        print(f'Using warmup schedule: d_model={d_model}, warmup_steps={warmup_steps}')
+        learning_rate = TransformerSchedule(
+            initial_lr=initial_lr,
+            peak_lr=peak_lr,
+            warmup_steps=warmup_steps,
+            decay_rate=decay_rate
+        )
+        print(f'Using warmup schedule: initial_lr={initial_lr}, peak_lr={peak_lr}, warmup_steps={warmup_steps}, decay_rate={decay_rate}')
     else:
         learning_rate = 0.0003  # Fixed learning rate (no warmup, no scaling)
         print(f'Using fixed learning rate: {learning_rate}')
