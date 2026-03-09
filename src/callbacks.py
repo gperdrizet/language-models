@@ -5,6 +5,7 @@ This module provides custom Keras callbacks for monitoring and improving
 model training, including BLEU score evaluation.
 """
 
+import time
 import numpy as np
 import tensorflow as tf
 from pathlib import Path
@@ -71,23 +72,34 @@ class BLEUCallback(tf.keras.callbacks.Callback):
             # Resume from existing metrics - only need BLEU-related data
             existing_history = existing_metrics.get('training_history', {})
             self.bleu_scores = existing_history.get('bleu_score', [])
+            self.elapsed_times = existing_history.get('elapsed_time', [])
             self.best_bleu = existing_metrics.get('best_bleu', 0.0)
             self.best_epoch = existing_metrics.get('best_epoch', 0)
         else:
             # Start fresh
             self.bleu_scores = []
+            self.elapsed_times = []
             self.best_bleu = 0.0
             self.best_epoch = 0
         
         self.bleu = BLEU()
         self.best_weights = None
+        self.training_start_time = None
         
         # Fixed sample for consistent evaluation across epochs
         np.random.seed(315)
         self.sample_indices = np.random.choice(len(pairs), size=self.sample_size, replace=False)
+    
+    def on_train_begin(self, logs=None):
+        """Record training start time."""
+        self.training_start_time = time.time()
         
     def on_epoch_end(self, epoch, logs=None):
         """Evaluate BLEU score at the end of each epoch."""
+        
+        # Track elapsed time since training start
+        elapsed = time.time() - self.training_start_time
+        self.elapsed_times.append(elapsed)
 
         # Build inference models to generate translations with current weights
         encoder_model, decoder_model = self.build_inference_fn(self.model, self.latent_dim)
