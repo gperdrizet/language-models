@@ -461,17 +461,19 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.dropout2 = tf.keras.layers.Dropout(dropout_rate)
     
     def call(self, x, training, mask=None):
-        # Self-attention: query=key=value=x
+        # Self-attention with pre-norm
         # Pass mask as [query_mask, value_mask] list if provided
         mask_list = [mask, mask] if mask is not None else None
-        attn_output = self.attention([x, x], mask=mask_list, training=training)
+        attn_input = self.layernorm1(x)
+        attn_output = self.attention([attn_input, attn_input], mask=mask_list, training=training)
         attn_output = self.dropout1(attn_output, training=training)
-        out1 = self.layernorm1(x + attn_output)
+        out1 = x + attn_output
         
-        # Feed-forward network
-        ffn_output = self.ffn(out1)
+        # Feed-forward network with pre-norm
+        ffn_input = self.layernorm2(out1)
+        ffn_output = self.ffn(ffn_input)
         ffn_output = self.dropout2(ffn_output, training=training)
-        out2 = self.layernorm2(out1 + ffn_output)
+        out2 = out1 + ffn_output
         
         return out2
 
@@ -503,24 +505,27 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.dropout3 = tf.keras.layers.Dropout(dropout_rate)
     
     def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
-        # Masked self-attention: decoder attends to previous positions
+        # Masked self-attention with pre-norm
         # Use causal masking (look-ahead) automatically
         dec_mask_list = [dec_padding_mask, dec_padding_mask] if dec_padding_mask is not None else None
-        attn1 = self.self_attention([x, x], mask=dec_mask_list, use_causal_mask=True, training=training)
+        attn1_input = self.layernorm1(x)
+        attn1 = self.self_attention([attn1_input, attn1_input], mask=dec_mask_list, use_causal_mask=True, training=training)
         attn1 = self.dropout1(attn1, training=training)
-        out1 = self.layernorm1(x + attn1)
+        out1 = x + attn1
         
-        # Cross-attention: decoder attends to encoder (same as LSTM attention)
+        # Cross-attention with pre-norm
         # Query from decoder, value/key from encoder
         cross_mask_list = [dec_padding_mask, enc_padding_mask] if enc_padding_mask is not None else None
-        attn2 = self.cross_attention([out1, enc_output], mask=cross_mask_list, training=training)
+        attn2_input = self.layernorm2(out1)
+        attn2 = self.cross_attention([attn2_input, enc_output], mask=cross_mask_list, training=training)
         attn2 = self.dropout2(attn2, training=training)
-        out2 = self.layernorm2(out1 + attn2)
+        out2 = out1 + attn2
         
-        # Feed-forward network
-        ffn_output = self.ffn(out2)
+        # Feed-forward network with pre-norm
+        ffn_input = self.layernorm3(out2)
+        ffn_output = self.ffn(ffn_input)
         ffn_output = self.dropout3(ffn_output, training=training)
-        out3 = self.layernorm3(out2 + ffn_output)
+        out3 = out2 + ffn_output
         
         return out3
 
