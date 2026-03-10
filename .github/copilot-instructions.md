@@ -83,6 +83,10 @@ if gpus:
 - Functional symbols like → for transformations/translations are acceptable
 - Use standard operators: `<=` not `≤`, `-` not `—` (em dash)
 - Keep documentation factual - avoid comparative language ("better", "improved", "enhancement")
+- Describe current state, not changes: Do not reference updates, revisions, or comparisons to earlier implementations
+  - Avoid: "updated to match", "changed from", "now uses", "unlike the previous version"
+  - Good: Describe what the code currently does and why
+  - Exception: Comparison tables showing different architectures/models are acceptable for educational purposes
 
 ## Architecture
 
