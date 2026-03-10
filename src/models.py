@@ -558,6 +558,9 @@ class Encoder(tf.keras.layers.Layer):
         ]
         
         self.dropout = tf.keras.layers.Dropout(dropout_rate)
+        
+        # Final layer normalization for pre-norm architecture
+        self.final_layernorm = tf.keras.layers.LayerNormalization(epsilon=1e-6)
     
     def call(self, x, training, mask=None):
         # Embedding + positional encoding
@@ -569,6 +572,9 @@ class Encoder(tf.keras.layers.Layer):
         # Pass through encoder layers
         for enc_layer in self.enc_layers:
             x = enc_layer(x, training, mask)
+        
+        # Final layer normalization (required for pre-norm)
+        x = self.final_layernorm(x)
         
         return x
 
@@ -601,6 +607,9 @@ class Decoder(tf.keras.layers.Layer):
         ]
         
         self.dropout = tf.keras.layers.Dropout(dropout_rate)
+        
+        # Final layer normalization for pre-norm architecture
+        self.final_layernorm = tf.keras.layers.LayerNormalization(epsilon=1e-6)
     
     def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
         # Embedding + positional encoding
@@ -612,6 +621,9 @@ class Decoder(tf.keras.layers.Layer):
         # Pass through decoder layers
         for dec_layer in self.dec_layers:
             x = dec_layer(x, enc_output, training, dec_padding_mask, enc_padding_mask)
+        
+        # Final layer normalization (required for pre-norm)
+        x = self.final_layernorm(x)
         
         return x
 
@@ -742,10 +754,13 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
     
+    # Import masked loss/accuracy to ignore padding positions
+    from .losses import masked_sparse_categorical_crossentropy, masked_accuracy
+    
     model.compile(
         optimizer=optimizer,
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        metrics=['accuracy']
+        loss=lambda y_true, y_pred: masked_sparse_categorical_crossentropy(y_true, y_pred, pad_token_id),
+        metrics=[lambda y_true, y_pred: masked_accuracy(y_true, y_pred, pad_token_id)]
     )
     
     return model
