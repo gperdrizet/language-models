@@ -450,6 +450,10 @@ class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, d_ff, dropout_rate=0.1):
         super().__init__()
         
+        # Q/K projections for attention (simplified Q and K=V design)
+        self.query_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj')
+        self.key_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj')
+        
         # Simple dot-product self-attention (same as LSTM attention)
         self.attention = tf.keras.layers.Attention(dropout=dropout_rate)
         self.ffn = feed_forward_network(d_model, d_ff)
@@ -465,7 +469,12 @@ class EncoderLayer(tf.keras.layers.Layer):
         # Pass mask as [query_mask, value_mask] list if provided
         mask_list = [mask, mask] if mask is not None else None
         attn_input = self.layernorm1(x)
-        attn_output = self.attention([attn_input, attn_input], mask=mask_list, training=training)
+        
+        # Project to query and key spaces (K=V)
+        q = self.query_proj(attn_input)
+        k = self.key_proj(attn_input)
+        
+        attn_output = self.attention([q, k], mask=mask_list, training=training)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = x + attn_output
         
@@ -491,6 +500,14 @@ class DecoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, d_ff, dropout_rate=0.1):
         super().__init__()
         
+        # Q/K projections for self-attention (simplified Q and K=V design)
+        self.query_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj_self')
+        self.key_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj_self')
+        
+        # Q/K projections for cross-attention
+        self.query_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj_cross')
+        self.key_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj_cross')
+        
         # Simple dot-product attention (same as LSTM attention)
         self.self_attention = tf.keras.layers.Attention(dropout=dropout_rate)
         self.cross_attention = tf.keras.layers.Attention(dropout=dropout_rate)
@@ -509,7 +526,12 @@ class DecoderLayer(tf.keras.layers.Layer):
         # Use causal masking (look-ahead) automatically
         dec_mask_list = [dec_padding_mask, dec_padding_mask] if dec_padding_mask is not None else None
         attn1_input = self.layernorm1(x)
-        attn1 = self.self_attention([attn1_input, attn1_input], mask=dec_mask_list, use_causal_mask=True, training=training)
+        
+        # Project to query and key spaces for self-attention (K=V)
+        q_self = self.query_proj_self(attn1_input)
+        k_self = self.key_proj_self(attn1_input)
+        
+        attn1 = self.self_attention([q_self, k_self], mask=dec_mask_list, use_causal_mask=True, training=training)
         attn1 = self.dropout1(attn1, training=training)
         out1 = x + attn1
         
@@ -517,7 +539,12 @@ class DecoderLayer(tf.keras.layers.Layer):
         # Query from decoder, value/key from encoder
         cross_mask_list = [dec_padding_mask, enc_padding_mask] if enc_padding_mask is not None else None
         attn2_input = self.layernorm2(out1)
-        attn2 = self.cross_attention([attn2_input, enc_output], mask=cross_mask_list, training=training)
+        
+        # Project query from decoder and key from encoder (K=V)
+        q_cross = self.query_proj_cross(attn2_input)
+        k_cross = self.key_proj_cross(enc_output)
+        
+        attn2 = self.cross_attention([q_cross, k_cross], mask=cross_mask_list, training=training)
         attn2 = self.dropout2(attn2, training=training)
         out2 = out1 + attn2
         
@@ -703,7 +730,7 @@ class Transformer(Model):
 def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, 
                            d_model=256, n_layers=4, d_ff=1024, dropout_rate=0.1, 
                            warmup_steps=4000, initial_lr=1e-6, peak_lr=0.01, 
-                           decay_rate=0.99, use_warmup=False, pad_token_id=59513):
+                           min_lr=1e-7, total_steps=35100, use_warmup=False, pad_token_id=59513):
     """
     Build and compile transformer model for neural machine translation.
     
@@ -718,7 +745,8 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         warmup_steps: Warmup steps for learning rate schedule (default: 4000)
         initial_lr: Initial learning rate during warmup (default: 1e-6)
         peak_lr: Peak learning rate after warmup (default: 0.01)
-        decay_rate: Exponential decay rate per step after warmup (default: 0.99)
+        min_lr: Minimum learning rate at end of training (default: 1e-7)
+        total_steps: Total training steps for cosine annealing (default: 35100)
         use_warmup: If True, use TransformerSchedule with warmup; if False, use fixed LR (default: False)
         pad_token_id: Padding token ID (default: 59513 for MarianTokenizer)
     
@@ -744,10 +772,11 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         learning_rate = TransformerSchedule(
             initial_lr=initial_lr,
             peak_lr=peak_lr,
+            min_lr=min_lr,
             warmup_steps=warmup_steps,
-            decay_rate=decay_rate
+            total_steps=total_steps
         )
-        print(f'Using warmup schedule: initial_lr={initial_lr}, peak_lr={peak_lr}, warmup_steps={warmup_steps}, decay_rate={decay_rate}')
+        print(f'Using cosine annealing: initial_lr={initial_lr:.1e}, peak_lr={peak_lr}, min_lr={min_lr:.1e}, warmup_steps={warmup_steps}, total_steps={total_steps}')
     else:
         learning_rate = 0.0003  # Fixed learning rate (no warmup, no scaling)
         print(f'Using fixed learning rate: {learning_rate}')
@@ -757,10 +786,15 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
     # Import masked loss/accuracy to ignore padding positions
     from .losses import masked_sparse_categorical_crossentropy, masked_accuracy
     
+    # Create named wrapper for masked accuracy metric (avoids "<lambda>" in TensorBoard)
+    def accuracy_metric(y_true, y_pred):
+        return masked_accuracy(y_true, y_pred, pad_token_id)
+    accuracy_metric.__name__ = 'accuracy'
+    
     model.compile(
         optimizer=optimizer,
         loss=lambda y_true, y_pred: masked_sparse_categorical_crossentropy(y_true, y_pred, pad_token_id),
-        metrics=[lambda y_true, y_pred: masked_accuracy(y_true, y_pred, pad_token_id)]
+        metrics=[accuracy_metric]
     )
     
     return model
@@ -790,7 +824,7 @@ def translate_transformer(input_text, model, tokenizer, max_encoder_len, max_dec
     )['input_ids']
     
     # Convert to TensorFlow tensor
-    encoder_input = tf.constant(encoder_input, dtype=tf.int64)
+    encoder_input = tf.constant(encoder_input, dtype=tf.int32)
     
     # Initialize decoder input with PAD token (BOS)
     decoder_input = tf.constant([[tokenizer.pad_token_id]], dtype=tf.int32)
