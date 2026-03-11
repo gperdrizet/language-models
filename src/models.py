@@ -538,7 +538,9 @@ class DecoderLayer(tf.keras.layers.Layer):
         
         # Cross-attention with pre-norm
         # Query from decoder, value/key from encoder
-        cross_mask_list = [dec_padding_mask, enc_padding_mask] if enc_padding_mask is not None else None
+        # Only mask encoder padding (key-side), not decoder positions (query-side)
+        # Decoder positions are already filtered by causal self-attention
+        cross_mask_list = [None, enc_padding_mask] if enc_padding_mask is not None else None
         attn2_input = self.layernorm2(out1)
         
         # Project query from decoder and key from encoder (K=V)
