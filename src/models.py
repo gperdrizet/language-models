@@ -523,24 +523,22 @@ class DecoderLayer(tf.keras.layers.Layer):
     
     def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
         # Masked self-attention with pre-norm
-        # Use causal masking (look-ahead) automatically
-        # Don't use padding mask for decoder self-attention during training
-        # (BOS uses PAD token at position 0, but shouldn't be masked out)
+        # Apply both causal mask (look-ahead) and padding mask
+        # Padding mask now correctly allows position 0 but masks trailing PAD
+        dec_mask_list = [dec_padding_mask, dec_padding_mask] if dec_padding_mask is not None else None
         attn1_input = self.layernorm1(x)
         
         # Project to query and key spaces for self-attention (K=V)
         q_self = self.query_proj_self(attn1_input)
         k_self = self.key_proj_self(attn1_input)
         
-        # Only causal mask, no padding mask for decoder self-attention
-        attn1 = self.self_attention([q_self, k_self], mask=None, use_causal_mask=True, training=training)
+        attn1 = self.self_attention([q_self, k_self], mask=dec_mask_list, use_causal_mask=True, training=training)
         attn1 = self.dropout1(attn1, training=training)
         out1 = x + attn1
         
         # Cross-attention with pre-norm
         # Query from decoder, value/key from encoder
-        # Only use encoder padding mask (to avoid attending to encoder padding)
-        cross_mask_list = [None, enc_padding_mask] if enc_padding_mask is not None else None
+        cross_mask_list = [dec_padding_mask, enc_padding_mask] if enc_padding_mask is not None else None
         attn2_input = self.layernorm2(out1)
         
         # Project query from decoder and key from encoder (K=V)
@@ -678,6 +676,36 @@ def create_padding_mask(seq, pad_token_id=59513):
     return mask
 
 
+def create_decoder_padding_mask(seq, pad_token_id=59513):
+    """
+    Create padding mask for decoder input that doesn't mask position 0.
+    
+    The decoder uses PAD token at position 0 as BOS, but this should NOT be masked.
+    Only mask trailing PAD tokens (positions > 0 where value == PAD).
+    
+    Args:
+        seq: Decoder input sequence of shape (batch, seq_len)
+        pad_token_id: ID of the padding token (default: 59513 for MarianTokenizer)
+    
+    Returns:
+        Decoder padding mask of shape (batch, seq_len) with dtype bool.
+        - True = keep position
+        - False = mask out (trailing padding only)
+    """
+    # Create position indices: [[0, 1, 2, ...], [0, 1, 2, ...], ...]
+    seq_len = tf.shape(seq)[1]
+    positions = tf.range(seq_len)[tf.newaxis, :]  # Shape: (1, seq_len)
+    positions = tf.broadcast_to(positions, tf.shape(seq))  # Shape: (batch, seq_len)
+    
+    # Mask where: (token != PAD) OR (position == 0)
+    # This keeps position 0 even if it's PAD, but masks other PAD positions
+    is_not_pad = tf.not_equal(seq, pad_token_id)
+    is_position_zero = tf.equal(positions, 0)
+    mask = tf.logical_or(is_not_pad, is_position_zero)
+    
+    return mask
+
+
 class Transformer(Model):
     """
     Complete transformer model for sequence-to-sequence tasks.
@@ -716,17 +744,13 @@ class Transformer(Model):
         # True = keep position (not padding), False = mask out (is padding)
         enc_padding_mask = create_padding_mask(encoder_input, self.pad_token_id)
         
-        # CRITICAL: Don't mask decoder input position 0 even though it's PAD (used as BOS)
-        # The decoder uses PAD token at position 0 as BOS, but we still need to attend to it
-        # During training with teacher forcing, we don't actually need decoder padding mask
-        # because causal masking handles the attention pattern
-        dec_padding_mask = None
+        # Decoder mask: Don't mask position 0 (BOS=PAD), but DO mask trailing PAD
+        dec_padding_mask = create_decoder_padding_mask(decoder_input, self.pad_token_id)
         
         # Encoder
-        enc_output = self.encoder(encoder_input, training, enc_padding_mask)
+        enc_output = self.encoder(encoder_input, training,enc_padding_mask)
         
         # Decoder (uses causal masking internally via use_causal_mask=True)
-        # Only pass encoder padding mask for cross-attention; decoder mask not needed
         dec_output = self.decoder(decoder_input, enc_output, training, 
                                  dec_padding_mask, enc_padding_mask)
         
