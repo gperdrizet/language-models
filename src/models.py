@@ -450,12 +450,13 @@ class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, d_ff, dropout_rate=0.1):
         super().__init__()
         
-        # Q/K projections for attention (simplified Q and K=V design)
+        # Q/K/V projections for attention
         self.query_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj')
         self.key_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj')
+        self.value_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='value_proj')
         
-        # Simple dot-product self-attention (same as LSTM attention)
-        self.attention = tf.keras.layers.Attention(dropout=dropout_rate)
+        # Dot-product self-attention with scaling (critical for large d_model)
+        self.attention = tf.keras.layers.Attention(use_scale=True, dropout=dropout_rate)
         self.ffn = feed_forward_network(d_model, d_ff)
         
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -470,11 +471,12 @@ class EncoderLayer(tf.keras.layers.Layer):
         mask_list = [mask, mask] if mask is not None else None
         attn_input = self.layernorm1(x)
         
-        # Project to query and key spaces (K=V)
+        # Project to query, key, and value spaces
         q = self.query_proj(attn_input)
         k = self.key_proj(attn_input)
+        v = self.value_proj(attn_input)
         
-        attn_output = self.attention([q, k], mask=mask_list, training=training)
+        attn_output = self.attention([q, v, k], mask=mask_list, training=training)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = x + attn_output
         
@@ -500,17 +502,19 @@ class DecoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, d_ff, dropout_rate=0.1):
         super().__init__()
         
-        # Q/K projections for self-attention (simplified Q and K=V design)
+        # Q/K/V projections for self-attention
         self.query_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj_self')
         self.key_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj_self')
+        self.value_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='value_proj_self')
         
-        # Q/K projections for cross-attention
+        # Q/K/V projections for cross-attention
         self.query_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj_cross')
         self.key_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj_cross')
+        self.value_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='value_proj_cross')
         
-        # Simple dot-product attention (same as LSTM attention)
-        self.self_attention = tf.keras.layers.Attention(dropout=dropout_rate)
-        self.cross_attention = tf.keras.layers.Attention(dropout=dropout_rate)
+        # Dot-product attention with scaling (critical for large d_model)
+        self.self_attention = tf.keras.layers.Attention(use_scale=True, dropout=dropout_rate)
+        self.cross_attention = tf.keras.layers.Attention(use_scale=True, dropout=dropout_rate)
         self.ffn = feed_forward_network(d_model, d_ff)
         
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -528,11 +532,12 @@ class DecoderLayer(tf.keras.layers.Layer):
         dec_mask_list = [dec_padding_mask, dec_padding_mask] if dec_padding_mask is not None else None
         attn1_input = self.layernorm1(x)
         
-        # Project to query and key spaces for self-attention (K=V)
+        # Project to query, key, and value spaces for self-attention
         q_self = self.query_proj_self(attn1_input)
         k_self = self.key_proj_self(attn1_input)
+        v_self = self.value_proj_self(attn1_input)
         
-        attn1 = self.self_attention([q_self, k_self], mask=dec_mask_list, use_causal_mask=True, training=training)
+        attn1 = self.self_attention([q_self, v_self, k_self], mask=dec_mask_list, use_causal_mask=True, training=training)
         attn1 = self.dropout1(attn1, training=training)
         out1 = x + attn1
         
@@ -543,11 +548,12 @@ class DecoderLayer(tf.keras.layers.Layer):
         cross_mask_list = [None, enc_padding_mask] if enc_padding_mask is not None else None
         attn2_input = self.layernorm2(out1)
         
-        # Project query from decoder and key from encoder (K=V)
+        # Project query from decoder, key and value from encoder
         q_cross = self.query_proj_cross(attn2_input)
         k_cross = self.key_proj_cross(enc_output)
+        v_cross = self.value_proj_cross(enc_output)
         
-        attn2 = self.cross_attention([q_cross, k_cross], mask=cross_mask_list, training=training)
+        attn2 = self.cross_attention([q_cross, v_cross, k_cross], mask=cross_mask_list, training=training)
         attn2 = self.dropout2(attn2, training=training)
         out2 = out1 + attn2
         
