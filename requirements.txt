@@ -4,4 +4,4 @@ jupyterlab_widgets
 sacrebleu
 sacremoses
 sentencepiece
-transformers
+transformers==4.48.0
