@@ -28,6 +28,10 @@
 
 		"TF_CPP_MIN_LOG_LEVEL": "1"        // Suppress TensorFlow INFO logs for cleaner output
   	},
+	"mounts": [
+		// Mounts the host's .ssh folder to the container user's .ssh folder
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+	],
 
 	// Custom configuration options
 	"customizations": {
