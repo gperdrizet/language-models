@@ -1,10 +1,6 @@
-datasets
-huggingface_hub
+datasets==4.0.0
 ipywidgets
-pyarrow<15.0.0
-python-dotenv
+jupyterlab_widgets
 sacrebleu
 sacremoses
 sentencepiece
-tensorboard
-transformers

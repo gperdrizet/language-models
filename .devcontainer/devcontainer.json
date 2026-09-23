@@ -5,19 +5,28 @@
 	// Based on NVIDIA's official TensorFlow 24.06 image with GPU support
 	// See here: https://hub.docker.com/r/gperdrizet/deeplearning-gpu
     // And here: https://docs.nvidia.com/deeplearning/frameworks/tensorflow-release-notes/rel-24-06.html
-	"name": "Language models GPU",
-	"image": "gperdrizet/deeplearning-gpu",
+	"name": "Language models demo",
+	"image": "gperdrizet/deeplearning-nvidia:7.0.1",
     "runArgs": [
-		"--gpus", "all",              // Use all available GPUs
+		"--gpus", "device=0",         // Choose which GPU to make available to the container (to use 
+	                                  // multiple GPUs comment this line and use --runtime=nvidia instead)
+
+		//"--runtime=nvidia",         // Used in conjunction with NVIDIA_VISIBLE_DEVICES to pass multiple
+		                              // GPUs (to use a single GPU, comment this line and use --gpus instead)
 		"--pid=host",                 // Use host PIDs, needed for nvidia-smi process list
 		"--ipc=host",                 // Connect to host interprocess namespace
 		"--ulimit", "memlock=-1",     // Turn of memory lock limit
+		"--shm-size=1g",              // Set shared memory size to 1 GB for better performance with TensorFlow
 		"--ulimit", "stack=67108864", // Increase process stack limit to 64 MB
-		"--network=bridge"            // Explicitly use bridge network for internet access
+		"--network=bridge",           // Explicitly use bridge network for internet access
+		"--publish", "6006:6006"      // Publish port 6006 for TensorBoard access
 	],
 	"remoteUser": "vscode",           // Use the 'vscode' user provided by the base image
 	"containerEnv": {
-		"TF_CPP_MIN_LOG_LEVEL": "1"   // Suppress TensorFlow INFO logs for cleaner output
+		//"NVIDIA_VISIBLE_DEVICES": "0,1", // Used to pass multiple GPU device IDs to the container if using a 
+										   // single GPU comment this line and pass a single index to --gpus instead
+
+		"TF_CPP_MIN_LOG_LEVEL": "1"        // Suppress TensorFlow INFO logs for cleaner output
   	},
 
 	// Custom configuration options
@@ -43,7 +52,10 @@
 			],
 			
 			// Disable automatic port forwarding to give explicit control
-			"remote.restoreForwardedPorts": false
+			"remote.restoreForwardedPorts": false,
+
+			// Forward port 6006 for TensorBoard access
+			"remote.forwardPorts": [6006]
 
 		},
 
@@ -55,8 +67,7 @@
 		  "ms-toolsai.jupyter",                     // Jupyter notebook support for interactive data science
 		  "streetsidesoftware.code-spell-checker",  // Spell checking for code and documentation
 		  "ms-toolsai.tensorboard",                 // TensorBoard extension
-		  "GitHub.copilot",                         // GitHub Copilot AI code completions
-		  "GitHub.copilot-chat"                     // GitHub Copilot Chat
+		  "optuna.optuna-dashboard"                 // Optuna dashboard extension
 		]
 	  }
 	},
@@ -66,8 +77,8 @@
 	"onCreateCommand": "",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
-	"postCreateCommand": "mkdir -p logs && mkdir -p models && mkdir -p data && pip install -r requirements.txt",
+	"postCreateCommand": "mkdir -p logs && mkdir -p models && mkdir -p data && pip install --force-reinstall --no-deps keras==3.6.0 sympy==1.13.1 && pip install -r requirements.txt",
 
 	// Use 'postAttachCommand' to run TensorBoard
-	"postAttachCommand": ""
+	"postAttachCommand": "tensorboard --logdir ./logs/"
 }
