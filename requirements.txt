@@ -4,3 +4,4 @@ jupyterlab_widgets
 sacrebleu
 sacremoses
 sentencepiece
+transformers
