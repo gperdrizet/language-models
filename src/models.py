@@ -26,6 +26,7 @@ def build_bidirectional_model(num_tokens, max_encoder_len, max_decoder_len, late
     Returns:
         Compiled Keras model
     """
+
     # ── Encoder ──────────────────────────────────────────────
     encoder_inputs = Input(shape=(max_encoder_len,), name='encoder_input')
     encoder_embedding = Embedding(num_tokens, latent_dim, mask_zero=True, name='encoder_embedding')
@@ -79,6 +80,7 @@ def build_attention_model(num_tokens, max_encoder_len, max_decoder_len, latent_d
     Returns:
         Compiled Keras model
     """
+
     # ── Encoder ──────────────────────────────────────────────
     encoder_inputs = Input(shape=(max_encoder_len,), name='encoder_input')
     encoder_embedding = Embedding(num_tokens, latent_dim, mask_zero=True, name='encoder_embedding')
@@ -142,6 +144,7 @@ def build_inference_models_lstm(model, latent_dim=256):
     Returns:
         Tuple of (encoder_model, decoder_model)
     """
+
     # ── Encoder inference model ──────────────────────────────────
     encoder_input_layer = model.get_layer('encoder_input').input
     encoder_embedding_layer = model.get_layer('encoder_embedding')
@@ -200,6 +203,7 @@ def build_inference_models_attention(model, max_encoder_len, latent_dim=256):
     Returns:
         Tuple of (encoder_model, decoder_model)
     """
+
     # ── Encoder inference model ────────────────────────────────────────────
     encoder_input_layer = model.get_layer('encoder_input').input
     encoder_embedding_layer = model.get_layer('encoder_embedding')
@@ -264,6 +268,7 @@ def translate_lstm(input_text, encoder_model, decoder_model, tokenizer, max_enco
     Returns:
         Translated text
     """
+
     # Tokenize and pad the input sentence
     input_tokens = tokenizer(
         input_text,
@@ -317,6 +322,7 @@ def translate_attention(input_text, encoder_model, decoder_model, tokenizer, max
     Returns:
         Translated text
     """
+
     # Tokenize and pad the input sentence
     input_tokens = tokenizer(
         input_text,
@@ -374,6 +380,7 @@ def get_positional_encoding(seq_len, d_model):
     Returns:
         Positional encoding tensor of shape (seq_len, d_model)
     """
+
     # Create position indices [0, 1, 2, ..., seq_len-1]
     positions = tf.cast(tf.range(seq_len), tf.float32)[:, tf.newaxis]
     
