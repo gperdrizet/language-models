@@ -84,5 +84,5 @@
 	"postCreateCommand": "mkdir -p logs && mkdir -p models && mkdir -p data && pip install --force-reinstall --no-deps keras==3.6.0 sympy==1.13.1 && pip install -r requirements.txt",
 
 	// Use 'postAttachCommand' to run TensorBoard
-	"postAttachCommand": "tensorboard --logdir ./logs/"
+	//"postAttachCommand": "tensorboard --logdir ./logs/"
 }
