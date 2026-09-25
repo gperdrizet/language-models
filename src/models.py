@@ -12,6 +12,9 @@ from tensorflow.keras.layers import (
     Input, LSTM, Dense, Embedding, Bidirectional, Concatenate, Attention
 )
 
+# Import masked loss/accuracy to ignore padding positions
+from .losses import masked_sparse_categorical_crossentropy, masked_accuracy
+from .schedules import TransformerSchedule
 
 def build_bidirectional_model(num_tokens, max_encoder_len, max_decoder_len, latent_dim=256):
     """
@@ -369,75 +372,40 @@ def translate_attention(input_text, encoder_model, decoder_model, tokenizer, max
 
 
 def get_positional_encoding(seq_len, d_model):
-    """
-    Generate positional encoding matrix using sine/cosine functions.
-    Uses TensorFlow operations for speed and GPU acceleration.
-    
-    Args:
-        seq_len: Maximum sequence length
-        d_model: Model dimension
-    
-    Returns:
-        Positional encoding tensor of shape (seq_len, d_model)
-    """
 
-    # Create position indices [0, 1, 2, ..., seq_len-1]
     positions = tf.cast(tf.range(seq_len), tf.float32)[:, tf.newaxis]
-    
-    # Create dimension indices [0, 1, 2, ..., d_model-1]
     dims = tf.cast(tf.range(d_model), tf.float32)[tf.newaxis, :]
     
-    # Compute angle rates: 1 / 10000^(2i/d_model)
-    angle_rates = 1 / tf.pow(10000.0, (2 * (dims // 2)) / d_model)
+    angle_rates = 1.0 / tf.pow(10000.0, (2.0 * (dims // 2.0)) / tf.cast(d_model, tf.float32))
     angle_rads = positions * angle_rates
     
-    # Apply sin to even indices, cos to odd indices
-    # Use tf.where to select sin for even, cos for odd
-    indices = tf.cast(tf.range(d_model), tf.int32)
+    indices = tf.range(d_model)
     is_even = tf.equal(indices % 2, 0)
+    is_even = tf.broadcast_to(is_even[tf.newaxis, :], tf.shape(angle_rads))
     
-    # Broadcast is_even to match angle_rads shape
-    is_even = tf.broadcast_to(is_even, tf.shape(angle_rads))
-    
-    pos_encoding = tf.where(
-        is_even,
-        tf.sin(angle_rads),
-        tf.cos(angle_rads)
-    )
-    
+    pos_encoding = tf.where(is_even, tf.sin(angle_rads), tf.cos(angle_rads))
+
     return pos_encoding
 
 
 class PositionalEncoding(tf.keras.layers.Layer):
-    """
-    Adds positional encoding to input embeddings.
-    
-    Args:
-        max_len: Maximum sequence length
-        d_model: Model dimension
-    """
-    
-    def __init__(self, max_len, d_model):
-        super().__init__()
-        # Generate positional encoding using TensorFlow operations
-        self.pos_encoding = tf.constant(get_positional_encoding(max_len, d_model), dtype=tf.float32)
-    
+    def __init__(self, max_len, d_model, **kwargs):
+        super().__init__(**kwargs)
+        pos_enc = get_positional_encoding(max_len, d_model)
+        # Register as non-trainable weight to preserve GPU device placement
+        self.pos_encoding = self.add_weight(
+            name='pos_encoding',
+            shape=(max_len, d_model),
+            initializer=tf.keras.initializers.Constant(pos_enc),
+            trainable=False
+        )
+
     def call(self, x):
         seq_len = tf.shape(x)[1]
         return x + self.pos_encoding[:seq_len, :]
 
 
 def feed_forward_network(d_model, d_ff):
-    """
-    Position-wise feed-forward network.
-    
-    Args:
-        d_model: Model dimension
-        d_ff: Feed-forward dimension (typically 4 * d_model)
-    
-    Returns:
-        Sequential model with two dense layers and ReLU activation
-    """
     return tf.keras.Sequential([
         tf.keras.layers.Dense(d_ff, activation='relu'),
         tf.keras.layers.Dense(d_model)
@@ -445,337 +413,190 @@ def feed_forward_network(d_model, d_ff):
 
 
 class EncoderLayer(tf.keras.layers.Layer):
-    """
-    Single transformer encoder layer with self-attention and feed-forward network.
-    
-    Args:
-        d_model: Model dimension
-        d_ff: Feed-forward dimension
-        dropout_rate: Dropout rate
-    """
-    
-    def __init__(self, d_model, d_ff, dropout_rate=0.1):
-        super().__init__()
-        
-        # Q/K/V projections for attention
-        self.query_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj')
-        self.key_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj')
-        self.value_proj = tf.keras.layers.Dense(d_model, use_bias=False, name='value_proj')
-        
-        # Dot-product self-attention with scaling (critical for large d_model)
-        self.attention = tf.keras.layers.Attention(use_scale=True, dropout=dropout_rate)
+    def __init__(self, d_model, num_heads, d_ff, dropout_rate=0.1, **kwargs):
+        super().__init__(**kwargs)
+        self.mha = tf.keras.layers.MultiHeadAttention(
+            num_heads=num_heads, 
+            key_dim=d_model // num_heads, 
+            dropout=dropout_rate
+        )
         self.ffn = feed_forward_network(d_model, d_ff)
-        
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-        
         self.dropout1 = tf.keras.layers.Dropout(dropout_rate)
         self.dropout2 = tf.keras.layers.Dropout(dropout_rate)
-    
-    def call(self, x, training, mask=None):
-        # Self-attention with pre-norm
-        # Pass mask as [query_mask, value_mask] list if provided
-        mask_list = [mask, mask] if mask is not None else None
+
+    def call(self, x, training=False, mask=None):
         attn_input = self.layernorm1(x)
-        
-        # Project to query, key, and value spaces
-        q = self.query_proj(attn_input)
-        k = self.key_proj(attn_input)
-        v = self.value_proj(attn_input)
-        
-        attn_output = self.attention([q, v, k], mask=mask_list, training=training)
+        attn_output = self.mha(
+            query=attn_input, 
+            value=attn_input, 
+            key=attn_input, 
+            attention_mask=mask, 
+            training=training
+        )
         attn_output = self.dropout1(attn_output, training=training)
         out1 = x + attn_output
-        
-        # Feed-forward network with pre-norm
+
         ffn_input = self.layernorm2(out1)
         ffn_output = self.ffn(ffn_input)
         ffn_output = self.dropout2(ffn_output, training=training)
-        out2 = out1 + ffn_output
-        
-        return out2
+        return out1 + ffn_output
 
 
 class DecoderLayer(tf.keras.layers.Layer):
-    """
-    Single transformer decoder layer with masked self-attention, cross-attention, and feed-forward network.
-    
-    Args:
-        d_model: Model dimension
-        d_ff: Feed-forward dimension
-        dropout_rate: Dropout rate
-    """
-    
-    def __init__(self, d_model, d_ff, dropout_rate=0.1):
-        super().__init__()
-        
-        # Q/K/V projections for self-attention
-        self.query_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj_self')
-        self.key_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj_self')
-        self.value_proj_self = tf.keras.layers.Dense(d_model, use_bias=False, name='value_proj_self')
-        
-        # Q/K/V projections for cross-attention
-        self.query_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='query_proj_cross')
-        self.key_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='key_proj_cross')
-        self.value_proj_cross = tf.keras.layers.Dense(d_model, use_bias=False, name='value_proj_cross')
-        
-        # Dot-product attention with scaling (critical for large d_model)
-        self.self_attention = tf.keras.layers.Attention(use_scale=True, dropout=dropout_rate)
-        self.cross_attention = tf.keras.layers.Attention(use_scale=True, dropout=dropout_rate)
+    def __init__(self, d_model, num_heads, d_ff, dropout_rate=0.1, **kwargs):
+        super().__init__(**kwargs)
+
+        self.self_mha = tf.keras.layers.MultiHeadAttention(
+            num_heads=num_heads, 
+            key_dim=d_model // num_heads, 
+            dropout=dropout_rate
+        )
+
+        self.cross_mha = tf.keras.layers.MultiHeadAttention(
+            num_heads=num_heads, 
+            key_dim=d_model // num_heads, 
+            dropout=dropout_rate
+        )
+
         self.ffn = feed_forward_network(d_model, d_ff)
-        
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm3 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-        
         self.dropout1 = tf.keras.layers.Dropout(dropout_rate)
         self.dropout2 = tf.keras.layers.Dropout(dropout_rate)
         self.dropout3 = tf.keras.layers.Dropout(dropout_rate)
-    
-    def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
-        # Masked self-attention with pre-norm
-        # Apply both causal mask (look-ahead) and padding mask
-        # Padding mask now correctly allows position 0 but masks trailing PAD
-        dec_mask_list = [dec_padding_mask, dec_padding_mask] if dec_padding_mask is not None else None
+
+    def call(self, x, enc_output, training=False, dec_padding_mask=None, enc_padding_mask=None):
         attn1_input = self.layernorm1(x)
-        
-        # Project to query, key, and value spaces for self-attention
-        q_self = self.query_proj_self(attn1_input)
-        k_self = self.key_proj_self(attn1_input)
-        v_self = self.value_proj_self(attn1_input)
-        
-        attn1 = self.self_attention([q_self, v_self, k_self], mask=dec_mask_list, use_causal_mask=True, training=training)
+        attn1 = self.self_mha(
+            query=attn1_input, 
+            value=attn1_input, 
+            key=attn1_input, 
+            attention_mask=dec_padding_mask, 
+            use_causal_mask=True, 
+            training=training
+        )
         attn1 = self.dropout1(attn1, training=training)
         out1 = x + attn1
-        
-        # Cross-attention with pre-norm
-        # Query from decoder, value/key from encoder
-        # Only mask encoder padding (key-side), not decoder positions (query-side)
-        # Decoder positions are already filtered by causal self-attention
-        cross_mask_list = [None, enc_padding_mask] if enc_padding_mask is not None else None
+
         attn2_input = self.layernorm2(out1)
-        
-        # Project query from decoder, key and value from encoder
-        q_cross = self.query_proj_cross(attn2_input)
-        k_cross = self.key_proj_cross(enc_output)
-        v_cross = self.value_proj_cross(enc_output)
-        
-        attn2 = self.cross_attention([q_cross, v_cross, k_cross], mask=cross_mask_list, training=training)
+        attn2 = self.cross_mha(
+            query=attn2_input, 
+            value=enc_output, 
+            key=enc_output, 
+            attention_mask=enc_padding_mask, 
+            training=training
+        )
         attn2 = self.dropout2(attn2, training=training)
         out2 = out1 + attn2
-        
-        # Feed-forward network with pre-norm
+
         ffn_input = self.layernorm3(out2)
         ffn_output = self.ffn(ffn_input)
         ffn_output = self.dropout3(ffn_output, training=training)
-        out3 = out2 + ffn_output
-        
-        return out3
+        return out2 + ffn_output
 
 
 class Encoder(tf.keras.layers.Layer):
-    """
-    Transformer encoder: embedding + positional encoding + N encoder layers.
-    
-    Args:
-        n_layers: Number of encoder layers
-        d_model: Model dimension
-        d_ff: Feed-forward dimension
-        vocab_size: Vocabulary size
-        max_len: Maximum sequence length
-        dropout_rate: Dropout rate
-    """
-    
-    def __init__(self, n_layers, d_model, d_ff, vocab_size, max_len, dropout_rate=0.1):
-        super().__init__()
-        
+    def __init__(self, n_layers, d_model, num_heads, d_ff, vocab_size, max_len, dropout_rate=0.1, **kwargs):
+        super().__init__(**kwargs)
         self.d_model = d_model
-        self.n_layers = n_layers
-        
         self.embedding = tf.keras.layers.Embedding(vocab_size, d_model)
         self.pos_encoding = PositionalEncoding(max_len, d_model)
-        
         self.enc_layers = [
-            EncoderLayer(d_model, d_ff, dropout_rate)
-            for _ in range(n_layers)
+            EncoderLayer(d_model, num_heads, d_ff, dropout_rate) for _ in range(n_layers)
         ]
-        
         self.dropout = tf.keras.layers.Dropout(dropout_rate)
-        
-        # Final layer normalization for pre-norm architecture
         self.final_layernorm = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-    
-    def call(self, x, training, mask=None):
-        # Embedding + positional encoding
+
+    def call(self, x, training=False, mask=None):
         x = self.embedding(x)
-        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))  # Scale embeddings
+        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         x = self.pos_encoding(x)
         x = self.dropout(x, training=training)
-        
-        # Pass through encoder layers
+
         for enc_layer in self.enc_layers:
-            x = enc_layer(x, training, mask)
-        
-        # Final layer normalization (required for pre-norm)
-        x = self.final_layernorm(x)
-        
-        return x
+            x = enc_layer(x, training=training, mask=mask)
+
+        return self.final_layernorm(x)
 
 
 class Decoder(tf.keras.layers.Layer):
-    """
-    Transformer decoder: embedding + positional encoding + N decoder layers.
-    
-    Args:
-        n_layers: Number of decoder layers
-        d_model: Model dimension
-        d_ff: Feed-forward dimension
-        vocab_size: Vocabulary size
-        max_len: Maximum sequence length
-        dropout_rate: Dropout rate
-    """
-    
-    def __init__(self, n_layers, d_model, d_ff, vocab_size, max_len, dropout_rate=0.1):
-        super().__init__()
-        
+    def __init__(self, n_layers, d_model, num_heads, d_ff, vocab_size, max_len, dropout_rate=0.1, **kwargs):
+        super().__init__(**kwargs)
+
         self.d_model = d_model
-        self.n_layers = n_layers
-        
         self.embedding = tf.keras.layers.Embedding(vocab_size, d_model)
         self.pos_encoding = PositionalEncoding(max_len, d_model)
-        
         self.dec_layers = [
-            DecoderLayer(d_model, d_ff, dropout_rate)
-            for _ in range(n_layers)
+            DecoderLayer(d_model, num_heads, d_ff, dropout_rate) for _ in range(n_layers)
         ]
-        
         self.dropout = tf.keras.layers.Dropout(dropout_rate)
-        
-        # Final layer normalization for pre-norm architecture
         self.final_layernorm = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-    
-    def call(self, x, enc_output, training, dec_padding_mask=None, enc_padding_mask=None):
-        # Embedding + positional encoding
+
+    def call(self, x, enc_output, training=False, dec_padding_mask=None, enc_padding_mask=None):
         x = self.embedding(x)
-        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))  # Scale embeddings
+        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         x = self.pos_encoding(x)
         x = self.dropout(x, training=training)
-        
-        # Pass through decoder layers
+
         for dec_layer in self.dec_layers:
-            x = dec_layer(x, enc_output, training, dec_padding_mask, enc_padding_mask)
-        
-        # Final layer normalization (required for pre-norm)
-        x = self.final_layernorm(x)
-        
-        return x
+            x = dec_layer(x, enc_output, training=training, dec_padding_mask=dec_padding_mask, enc_padding_mask=enc_padding_mask)
+
+        return self.final_layernorm(x)
 
 
-def create_padding_mask(seq, pad_token_id=59513):
-    """
-    Create mask for padding tokens.
-    
-    Args:
-        seq: Input sequence of shape (batch, seq_len)
-        pad_token_id: ID of the padding token (default: 59513 for MarianTokenizer)
-    
-    Returns:
-        Padding mask of shape (batch, seq_len) with dtype bool.
-        For use with layers.Attention as [query_mask, value_mask].
-        - True = keep position (not padding)
-        - False = mask out (is padding)
-    """
-    # Mark non-padding positions as True (keep), padding positions as False (mask out)
-    # Keras Attention expects False for positions to mask out
+def create_padding_mask(seq, pad_token_id):
+    # Shape: (batch, 1, 1, seq_len) for broadcast in MultiHeadAttention
     mask = tf.cast(tf.math.not_equal(seq, pad_token_id), tf.bool)
-    return mask
+
+    return mask[:, tf.newaxis, tf.newaxis, :]
 
 
-def create_decoder_padding_mask(seq, pad_token_id=59513):
-    """
-    Create padding mask for decoder input that doesn't mask position 0.
-    
-    The decoder uses PAD token at position 0 as BOS, but this should NOT be masked.
-    Only mask trailing PAD tokens (positions > 0 where value == PAD).
-    
-    Args:
-        seq: Decoder input sequence of shape (batch, seq_len)
-        pad_token_id: ID of the padding token (default: 59513 for MarianTokenizer)
-    
-    Returns:
-        Decoder padding mask of shape (batch, seq_len) with dtype bool.
-        - True = keep position
-        - False = mask out (trailing padding only)
-    """
-    # Create position indices: [[0, 1, 2, ...], [0, 1, 2, ...], ...]
+def create_decoder_padding_mask(seq, pad_token_id):
     seq_len = tf.shape(seq)[1]
-    positions = tf.range(seq_len)[tf.newaxis, :]  # Shape: (1, seq_len)
-    positions = tf.broadcast_to(positions, tf.shape(seq))  # Shape: (batch, seq_len)
+    positions = tf.range(seq_len)[tf.newaxis, :]
+    positions = tf.broadcast_to(positions, tf.shape(seq))
     
-    # Mask where: (token != PAD) OR (position == 0)
-    # This keeps position 0 even if it's PAD, but masks other PAD positions
     is_not_pad = tf.not_equal(seq, pad_token_id)
     is_position_zero = tf.equal(positions, 0)
     mask = tf.logical_or(is_not_pad, is_position_zero)
-    
-    return mask
+
+    return mask[:, tf.newaxis, tf.newaxis, :]
 
 
-class Transformer(Model):
-    """
-    Complete transformer model for sequence-to-sequence tasks.
-    
-    Args:
-        n_layers: Number of encoder/decoder layers
-        d_model: Model dimension
-        d_ff: Feed-forward dimension
-        input_vocab_size: Source vocabulary size
-        target_vocab_size: Target vocabulary size
-        max_encoder_len: Maximum encoder sequence length
-        max_decoder_len: Maximum decoder sequence length
-        dropout_rate: Dropout rate
-        pad_token_id: ID of padding token (default: 59513 for MarianTokenizer)
-    """
-    
-    def __init__(self, n_layers, d_model, d_ff, input_vocab_size, 
+class Transformer(tf.keras.Model):
+    def __init__(self, n_layers, d_model, num_heads, d_ff, input_vocab_size, 
                  target_vocab_size, max_encoder_len, max_decoder_len, 
-                 dropout_rate=0.1, pad_token_id=59513):
-        super().__init__()
-        
+                 dropout_rate=0.1, pad_token_id=59513, **kwargs):
+
+        super().__init__(**kwargs)
         self.pad_token_id = pad_token_id
         
-        self.encoder = Encoder(n_layers, d_model, d_ff, 
-                              input_vocab_size, max_encoder_len, dropout_rate)
-        
-        self.decoder = Decoder(n_layers, d_model, d_ff,
-                              target_vocab_size, max_decoder_len, dropout_rate)
-        
+        self.encoder = Encoder(
+            n_layers, d_model, num_heads, d_ff, input_vocab_size, max_encoder_len, dropout_rate
+        )
+        self.decoder = Decoder(
+            n_layers, d_model, num_heads, d_ff, target_vocab_size, max_decoder_len, dropout_rate
+        )
         self.final_layer = tf.keras.layers.Dense(target_vocab_size)
-    
+
     def call(self, inputs, training=False):
         encoder_input, decoder_input = inputs
-        
-        # Create padding masks (shape: batch, seq_len)
-        # True = keep position (not padding), False = mask out (is padding)
+
         enc_padding_mask = create_padding_mask(encoder_input, self.pad_token_id)
-        
-        # Decoder mask: Don't mask position 0 (BOS=PAD), but DO mask trailing PAD
         dec_padding_mask = create_decoder_padding_mask(decoder_input, self.pad_token_id)
-        
-        # Encoder
-        enc_output = self.encoder(encoder_input, training,enc_padding_mask)
-        
-        # Decoder (uses causal masking internally via use_causal_mask=True)
-        dec_output = self.decoder(decoder_input, enc_output, training, 
-                                 dec_padding_mask, enc_padding_mask)
-        
-        # Final linear layer
-        output = self.final_layer(dec_output)
-        
-        return output
 
+        enc_output = self.encoder(encoder_input, training=training, mask=enc_padding_mask)
+        dec_output = self.decoder(
+            decoder_input, enc_output, training=training, 
+            dec_padding_mask=dec_padding_mask, enc_padding_mask=enc_padding_mask
+        )
 
-def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, 
+        return self.final_layer(dec_output)
+
+def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len, num_heads=3,
                            d_model=256, n_layers=4, d_ff=1024, dropout_rate=0.1, 
                            warmup_steps=4000, initial_lr=1e-6, peak_lr=0.01, 
                            min_lr=1e-7, total_steps=35100, use_warmup=False, pad_token_id=59513):
@@ -786,6 +607,7 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
         num_tokens: Vocabulary size
         max_encoder_len: Maximum encoder sequence length
         max_decoder_len: Maximum decoder sequence length
+        num_heads: Number of attention heads (default: 3)
         d_model: Model dimension (default: 256)
         n_layers: Number of encoder/decoder layers (default: 4)
         d_ff: Feed-forward dimension (default: 1024, typically 4 × d_model)
@@ -801,11 +623,11 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
     Returns:
         Compiled transformer model
     """
-    from .schedules import TransformerSchedule
     
     model = Transformer(
         n_layers=n_layers,
         d_model=d_model,
+        num_heads=num_heads,
         d_ff=d_ff,
         input_vocab_size=num_tokens,
         target_vocab_size=num_tokens,
@@ -824,7 +646,9 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
             warmup_steps=warmup_steps,
             total_steps=total_steps
         )
-        print(f'Using cosine annealing: initial_lr={initial_lr:.1e}, peak_lr={peak_lr}, min_lr={min_lr:.1e}, warmup_steps={warmup_steps}, total_steps={total_steps}')
+        print(f'Using cosine annealing: initial_lr={initial_lr:.1e}, peak_lr={peak_lr}, ' \
+              f'min_lr={min_lr:.1e}, warmup_steps={warmup_steps}, total_steps={total_steps}')
+
     else:
         learning_rate = 0.0003  # Fixed learning rate (no warmup, no scaling)
         print(f'Using fixed learning rate: {learning_rate}')
@@ -837,6 +661,7 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
     # Create named wrapper for masked accuracy metric (avoids "<lambda>" in TensorBoard)
     def accuracy_metric(y_true, y_pred):
         return masked_accuracy(y_true, y_pred, pad_token_id)
+
     accuracy_metric.__name__ = 'accuracy'
     
     model.compile(
@@ -849,20 +674,6 @@ def build_transformer_model(num_tokens, max_encoder_len, max_decoder_len,
 
 
 def translate_transformer(input_text, model, tokenizer, max_encoder_len, max_decoder_len):
-    """
-    Translate text using trained transformer with greedy decoding.
-    
-    Args:
-        input_text: Source text to translate
-        model: Trained transformer model
-        tokenizer: Tokenizer for encoding/decoding
-        max_encoder_len: Maximum encoder sequence length
-        max_decoder_len: Maximum decoder sequence length
-    
-    Returns:
-        Translated text
-    """
-    # Tokenize input
     encoder_input = tokenizer(
         input_text,
         padding='max_length',
@@ -870,33 +681,20 @@ def translate_transformer(input_text, model, tokenizer, max_encoder_len, max_dec
         max_length=max_encoder_len,
         return_tensors='np'
     )['input_ids']
-    
-    # Convert to TensorFlow tensor
+
     encoder_input = tf.constant(encoder_input, dtype=tf.int32)
-    
-    # Initialize decoder input with PAD token (BOS)
-    decoder_input = tf.constant([[tokenizer.pad_token_id]], dtype=tf.int32)
-    
-    # Autoregressive generation
+    decoder_input = tf.constant([[tokenizer.eos_token_id]], dtype=tf.int32)
+
     for _ in range(max_decoder_len - 1):
-        # Predict next token
         predictions = model([encoder_input, decoder_input], training=False)
-        
-        # Get last token prediction
         predicted_id = tf.argmax(predictions[:, -1:, :], axis=-1, output_type=tf.int32)
-        
-        # Stop if EOS token
+
         if predicted_id.numpy()[0, 0] == tokenizer.eos_token_id:
             break
-        
-        # Append to decoder input
-        decoder_input = tf.concat([decoder_input, predicted_id], axis=-1)
-    
-    # Decode tokens to text
-    output_text = tokenizer.decode(decoder_input[0], skip_special_tokens=True)
-    
-    return output_text
 
+        decoder_input = tf.concat([decoder_input, predicted_id], axis=-1)
+
+    return tokenizer.decode(decoder_input[0], skip_special_tokens=True)
 
 def build_inference_models_transformer(model, latent_dim):
     """

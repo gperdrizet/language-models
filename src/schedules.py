@@ -32,14 +32,15 @@ class TransformerSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, initial_lr=1e-6, peak_lr=0.01, min_lr=1e-7, warmup_steps=1404, total_steps=35100):
         super().__init__()
         
-        self.initial_lr = tf.cast(initial_lr, tf.float32)
-        self.peak_lr = tf.cast(peak_lr, tf.float32)
-        self.min_lr = tf.cast(min_lr, tf.float32)
+        self.initial_lr   = tf.cast(initial_lr, tf.float32)
+        self.peak_lr      = tf.cast(peak_lr, tf.float32)
+        self.min_lr       = tf.cast(min_lr, tf.float32)
         self.warmup_steps = tf.cast(warmup_steps, tf.float32)
-        self.total_steps = tf.cast(total_steps, tf.float32)
-        self.decay_steps = self.total_steps - self.warmup_steps
+        self.total_steps  = tf.cast(total_steps, tf.float32)
+        self.decay_steps  = self.total_steps - self.warmup_steps
     
     def __call__(self, step):
+
         # Cast step to float32
         step = tf.cast(step, tf.float32)
         
@@ -58,6 +59,7 @@ class TransformerSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         return lr
     
     def get_config(self):
+
         return {
             'initial_lr': float(self.initial_lr.numpy()),
             'peak_lr': float(self.peak_lr.numpy()),
