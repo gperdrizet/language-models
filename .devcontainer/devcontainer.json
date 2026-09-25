@@ -26,7 +26,7 @@
 		//"NVIDIA_VISIBLE_DEVICES": "0,1", // Used to pass multiple GPU device IDs to the container if using a 
 										   // single GPU comment this line and pass a single index to --gpus instead
 
-		"TF_CPP_MIN_LOG_LEVEL": "1"        // Suppress TensorFlow INFO logs for cleaner output
+		"TF_CPP_MIN_LOG_LEVEL": "2"        // Suppress TensorFlow INFO logs for cleaner output
   	},
 	"mounts": [
 		// Mounts the host's .ssh folder to the container user's .ssh folder
