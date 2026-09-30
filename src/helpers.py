@@ -28,3 +28,31 @@ def configure_gpu(gpu_num=0, memory_growth=True):
             print(f'GPU configuration error: {e}')
     else:
         print('No GPU devices found')
+
+
+def prepare_tf_dataset(dataset_path, batch_size, shuffle=True, shuffle_buffer_size=5000):
+    """Prepare a TensorFlow dataset from a given file path.
+
+    Args:
+        dataset_path (str): Path to the dataset file.
+        batch_size (int): Batch size for the dataset.
+        shuffle (bool): Whether to shuffle the dataset.
+        shuffle_buffer_size (int): Buffer size for shuffling the dataset.
+
+    Returns:
+        tf.data.Dataset: A TensorFlow dataset ready for training or evaluation.
+    """
+
+    # Load finite dataset from disk
+    dataset = tf.data.Dataset.load(str(dataset_path))
+
+    if shuffle:
+        dataset = dataset.shuffle(
+            buffer_size=shuffle_buffer_size,
+            reshuffle_each_iteration=True # Ensures a new shuffle order every epoch
+        )
+
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+
+    return dataset

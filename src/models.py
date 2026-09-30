@@ -284,8 +284,8 @@ def translate_lstm(input_text, encoder_model, decoder_model, tokenizer, max_enco
     # Encode: run encoder once to get initial states
     states = encoder_model.predict(input_tokens, verbose=0)
     
-    # Start with pad token (acts as BOS for this tokenizer)
-    target_seq = np.array([[tokenizer.pad_token_id]])
+    # Start with eos token (acts as BOS for this tokenizer)
+    target_seq = np.array([[tokenizer.eos_token_id]])
     decoded_tokens = []
 
     # Autoregressive decoding loop
@@ -341,8 +341,8 @@ def translate_lstm_batch(input_texts, encoder_model, decoder_model, tokenizer, m
     # states will be a list: [hidden_state_batch, cell_state_batch]
     states = encoder_model.predict(input_tokens, batch_size=batch_size, verbose=0)
     
-    # Start all sentences with the BOS/pad token
-    target_seq = np.full((batch_size, 1), tokenizer.pad_token_id)
+    # Start all sentences with the eos token (acts as BOS for this tokenizer)
+    target_seq = np.full((batch_size, 1), tokenizer.eos_token_id)
     
     # Track decoded tokens for all sequences: list of lists
     decoded_tokens_batch = [[] for _ in range(batch_size)]

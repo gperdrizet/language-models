@@ -15,7 +15,7 @@ from .models import (
 from .callbacks import BLEUCallback
 from .schedules import TransformerSchedule
 from .losses import masked_sparse_categorical_crossentropy, masked_accuracy
-from .helpers import configure_gpu
+from .helpers import configure_gpu, prepare_tf_dataset
 
 __all__ = [
     'build_bidirectional_model',
@@ -32,5 +32,6 @@ __all__ = [
     'TransformerSchedule',
     'masked_sparse_categorical_crossentropy',
     'masked_accuracy',
-    'configure_gpu'
+    'configure_gpu',
+    'prepare_tf_dataset'
 ]
