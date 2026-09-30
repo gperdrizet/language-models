@@ -310,6 +310,73 @@ def translate_lstm(input_text, encoder_model, decoder_model, tokenizer, max_enco
     return tokenizer.decode(decoded_tokens, skip_special_tokens=True)
 
 
+def translate_lstm_batch(input_texts, encoder_model, decoder_model, tokenizer, max_encoder_len, max_decoder_len):
+    """
+    Translates an entire list of strings simultaneously using batched inference.
+
+    Args:
+        input_texts: List of source texts to translate
+        encoder_model: Encoder inference model
+        decoder_model: Decoder inference model
+        tokenizer: Tokenizer for encoding/decoding
+        max_encoder_len: Maximum encoder sequence length
+        max_decoder_len: Maximum decoder sequence length
+    
+    Returns:
+        List of translated texts
+    """
+
+    # Tokenize EVERYTHING at once on the CPU
+    input_tokens = tokenizer(
+        input_texts,
+        padding='max_length',
+        max_length=max_encoder_len,
+        truncation=True,
+        return_tensors='np'
+    )['input_ids']
+    
+    batch_size = len(input_texts)
+    
+    # Run batched encoder ONCE on GPU (Massive speedup)
+    # states will be a list: [hidden_state_batch, cell_state_batch]
+    states = encoder_model.predict(input_tokens, batch_size=batch_size, verbose=0)
+    
+    # Start all sentences with the BOS/pad token
+    target_seq = np.full((batch_size, 1), tokenizer.pad_token_id)
+    
+    # Track decoded tokens for all sequences: list of lists
+    decoded_tokens_batch = [[] for _ in range(batch_size)]
+
+    # Keep track of which sentences have hit an EOS token
+    finished = np.zeros(batch_size, dtype=bool)
+
+    # Batched Autoregressive loop
+    for _ in range(max_decoder_len):
+        if finished.all():
+            break
+            
+        # Predict the next token for the ENTIRE batch at once on the GPU
+        output_tokens, h, c = decoder_model.predict([target_seq] + states, batch_size=batch_size, verbose=0)
+        
+        # Greedy selection for the whole batch
+        sampled_token_ids = np.argmax(output_tokens[:, -1, :], axis=-1) # Shape: (batch_size,)
+        
+        # Update target sequence and states for the next step
+        target_seq = sampled_token_ids.reshape(-1, 1)
+        states = [h, c]
+        
+        # Record tokens
+        for idx in range(batch_size):
+            if not finished[idx]:
+                if sampled_token_ids[idx] == tokenizer.eos_token_id:
+                    finished[idx] = True
+                else:
+                    decoded_tokens_batch[idx].append(int(sampled_token_ids[idx]))
+                    
+    # Decode all tokens back to text at once
+    return tokenizer.batch_decode(decoded_tokens_batch, skip_special_tokens=True)
+
+
 def translate_attention(input_text, encoder_model, decoder_model, tokenizer, max_encoder_len, max_decoder_len):
     """
     Translate text using greedy decoding with attention model.

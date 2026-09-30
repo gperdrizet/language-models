@@ -33,7 +33,8 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         sample_size=100,
         latent_dim=256,
         restore_best_weights=True,
-        existing_metrics=None
+        existing_metrics=None,
+        verbose=0
     ):
         """
         Initialize BLEU callback.
@@ -50,7 +51,9 @@ class BLEUCallback(tf.keras.callbacks.Callback):
             latent_dim: Latent dimension used in model
             restore_best_weights: Whether to restore best weights after training
             existing_metrics: Existing training metrics dict for resume training (optional)
+            verbose: Verbosity level (0 = silent, 1 = progress messages)
         """
+
         super().__init__()
         self.pairs = pairs
         self.tokenizer = tokenizer
@@ -62,6 +65,7 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         self.sample_size = min(sample_size, len(pairs))
         self.latent_dim = latent_dim
         self.restore_best_weights = restore_best_weights
+        self.verbose = verbose
         
         # Create checkpoint directory if specified
         if self.checkpoint_dir:
@@ -69,12 +73,14 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         
         # Track BLEU scores and best model
         if existing_metrics:
+
             # Resume from existing metrics - only need BLEU-related data
             existing_history = existing_metrics.get('training_history', {})
             self.bleu_scores = existing_history.get('bleu_score', [])
             self.elapsed_times = existing_history.get('elapsed_time', [])
             self.best_bleu = existing_metrics.get('best_bleu', 0.0)
             self.best_epoch = existing_metrics.get('best_epoch', 0)
+
         else:
             # Start fresh
             self.bleu_scores = []
@@ -91,52 +97,53 @@ class BLEUCallback(tf.keras.callbacks.Callback):
         self.sample_indices = np.random.choice(len(pairs), size=self.sample_size, replace=False)
     
     def on_train_begin(self, logs=None):
-        """Record training start time."""
+        """Record training start time and build inference models once."""
+
         self.training_start_time = time.time()
+        
+        # Build the models ONCE at the start of training, not every epoch
+        if self.build_inference_fn:
+            self.encoder_model, self.decoder_model = self.build_inference_fn(self.model, self.latent_dim)
+
+        else:
+            self.encoder_model, self.decoder_model = None, None
         
     def on_epoch_end(self, epoch, logs=None):
         """Evaluate BLEU score at the end of each epoch."""
         
-        # Track elapsed time since training start
         elapsed = time.time() - self.training_start_time
         self.elapsed_times.append(elapsed)
-
-        # Build inference models to generate translations with current weights
-        encoder_model, decoder_model = self.build_inference_fn(self.model, self.latent_dim)
         
-        # Translate sample sentences and collect references
-        hypotheses = []
-        references = []
+        # 1. Gather all inputs and references cleanly into lists
+        en_texts = [self.pairs[idx][0] for idx in self.sample_indices]
+        references = [self.pairs[idx][1] for idx in self.sample_indices]
 
-        for idx in self.sample_indices:
+        if self.verbose > 0:
+            print(f'\n Running batched GPU inference on {len(self.sample_indices)} phrases...')
 
-            en_text, fr_ref = self.pairs[idx]
-            
-            # Handle both LSTM (separate encoder/decoder) and transformer (single model)
-            if encoder_model is None and decoder_model is None:
-                # Transformer case: pass the full model
-                fr_hyp = self.translate_fn(
-                    en_text, self.model,
-                    self.tokenizer, self.max_encoder_len, self.max_decoder_len
-                )
-            else:
-                # LSTM case: pass separate encoder and decoder models
-                fr_hyp = self.translate_fn(
-                    en_text, encoder_model, decoder_model,
-                    self.tokenizer, self.max_encoder_len, self.max_decoder_len
-                )
-            
-            hypotheses.append(fr_hyp)
-            references.append(fr_ref)
+        # Call the batched translation function
+        if self.encoder_model is not None and self.decoder_model is not None:
+            hypotheses = self.translate_fn(
+                en_texts, self.encoder_model, self.decoder_model,
+                self.tokenizer, self.max_encoder_len, self.max_decoder_len
+            )
+
+        else:
+
+            # If you are testing a transformer, you'll need a similar translate_transformer_batch function
+            hypotheses = [
+                self.translate_fn(txt, self.model, self.tokenizer, self.max_encoder_len, self.max_decoder_len)
+                for txt in en_texts
+            ]
         
-        # Compute corpus BLEU
+        # 3. Compute corpus BLEU (stays the same)
         result = self.bleu.corpus_score(hypotheses, [references])
         score = result.score
         self.bleu_scores.append(score)
         
         # Log BLEU score to TensorBoard
         if logs is not None:
-            logs['bleu_score'] = score
+            logs['test_bleu_score'] = score
         
         # Checkpoint if this is the best BLEU score so far
         if score > self.best_bleu:
@@ -150,12 +157,17 @@ class BLEUCallback(tf.keras.callbacks.Callback):
                 checkpoint_filename = f'model_epoch_{epoch+1:02d}_best_bleu_{score:.2f}.h5'
                 checkpoint_path = self.checkpoint_dir / checkpoint_filename
                 self.model.save_weights(str(checkpoint_path))
-                # print(f' - BLEU: {score:.2f} (best) - saved {checkpoint_filename}')
-            # else:
-            #     print(f' - BLEU: {score:.2f} (best)')
 
-        # else:
-        #     print(f' - BLEU: {score:.2f} (best: {self.best_bleu:.2f})')
+                if self.verbose > 0:
+                    print(f' BLEU: {score:.2f} (best) - saved {checkpoint_filename}')
+
+            else:
+                if self.verbose > 0:
+                    print(f' BLEU: {score:.2f} (best)')
+
+        else:
+            if self.verbose > 0:
+                print(f' BLEU: {score:.2f} (best: {self.best_bleu:.2f})')
     
     def on_train_end(self, logs=None):
         """Restore best weights after training completes."""
